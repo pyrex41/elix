@@ -37,6 +37,396 @@ defmodule BackendWeb.ApiSchemas do
     })
   end
 
+  defmodule ErrorResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ErrorResponse",
+      description: "Generic error envelope.",
+      type: :object,
+      properties: %{
+        error: %Schema{
+          anyOf: [
+            %Schema{type: :object, additionalProperties: true},
+            %Schema{type: :string}
+          ],
+          description: "Error message or object describing the failure"
+        }
+      },
+      required: [:error]
+    })
+  end
+
+  defmodule Client do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "Client",
+      description: "Represents a brand or customer.",
+      type: :object,
+      properties: %{
+        id: %Schema{type: :string, format: :uuid},
+        name: %Schema{type: :string},
+        description: %Schema{type: :string, nullable: true},
+        homepage: %Schema{type: :string, nullable: true},
+        metadata: %Schema{type: :object, additionalProperties: true},
+        brand_guidelines: %Schema{type: :string, nullable: true},
+        inserted_at: %Schema{type: :string, format: :"date-time"},
+        updated_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [:id, :name]
+    })
+  end
+
+  defmodule ClientRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ClientRequest",
+      description: "Payload used to create or update a client.",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string},
+        description: %Schema{type: :string, nullable: true},
+        homepage: %Schema{type: :string, nullable: true},
+        metadata: %Schema{type: :object, additionalProperties: true},
+        brand_guidelines: %Schema{type: :string, nullable: true}
+      },
+      required: [:name]
+    })
+  end
+
+  defmodule ClientResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ClientResponse",
+      type: :object,
+      properties: %{
+        data: Client
+      },
+      required: [:data]
+    })
+  end
+
+  defmodule ClientListResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ClientListResponse",
+      type: :object,
+      properties: %{
+        data: %Schema{type: :array, items: Client},
+        meta: %Schema{
+          type: :object,
+          properties: %{
+            total: %Schema{type: :integer}
+          }
+        }
+      },
+      required: [:data, :meta]
+    })
+  end
+
+  defmodule ClientStatsResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ClientStatsResponse",
+      type: :object,
+      properties: %{
+        data: %Schema{
+          type: :object,
+          properties: %{
+            campaignCount: %Schema{type: :integer},
+            videoCount: %Schema{type: :integer},
+            totalSpend: %Schema{type: :number}
+          }
+        }
+      },
+      required: [:data]
+    })
+  end
+
+  defmodule Campaign do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "Campaign",
+      description: "A marketing campaign tied to a client.",
+      type: :object,
+      properties: %{
+        id: %Schema{type: :string, format: :uuid},
+        client_id: %Schema{type: :string, format: :uuid},
+        name: %Schema{type: :string},
+        brief: %Schema{type: :string, nullable: true},
+        goal: %Schema{type: :string, nullable: true},
+        status: %Schema{type: :string, nullable: true},
+        product_url: %Schema{type: :string, nullable: true},
+        metadata: %Schema{type: :object, additionalProperties: true},
+        inserted_at: %Schema{type: :string, format: :"date-time"},
+        updated_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [:id, :client_id, :name]
+    })
+  end
+
+  defmodule CampaignRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "CampaignRequest",
+      description: "Payload used to create or update a campaign.",
+      type: :object,
+      properties: %{
+        client_id: %Schema{type: :string, format: :uuid},
+        name: %Schema{type: :string},
+        brief: %Schema{type: :string, nullable: true},
+        goal: %Schema{type: :string, nullable: true},
+        status: %Schema{type: :string, nullable: true},
+        product_url: %Schema{type: :string, nullable: true},
+        metadata: %Schema{type: :object, additionalProperties: true}
+      },
+      required: [:name, :client_id]
+    })
+  end
+
+  defmodule CampaignResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "CampaignResponse",
+      type: :object,
+      properties: %{
+        data: Campaign
+      },
+      required: [:data]
+    })
+  end
+
+  defmodule CampaignListResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "CampaignListResponse",
+      type: :object,
+      properties: %{
+        data: %Schema{type: :array, items: Campaign},
+        meta: %Schema{
+          type: :object,
+          properties: %{
+            total: %Schema{type: :integer},
+            client_id: %Schema{type: :string, format: :uuid, nullable: true}
+          }
+        }
+      },
+      required: [:data, :meta]
+    })
+  end
+
+  defmodule CampaignStatsResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "CampaignStatsResponse",
+      type: :object,
+      properties: %{
+        data: %Schema{
+          type: :object,
+          additionalProperties: true
+        }
+      },
+      required: [:data]
+    })
+  end
+
+  defmodule CampaignJobResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "CampaignJobResponse",
+      description: "Job summary returned when a job is created from a campaign.",
+      type: :object,
+      properties: %{
+        data: %Schema{
+          type: :object,
+          properties: %{
+            id: %Schema{type: :integer},
+            type: %Schema{type: :string},
+            status: %Schema{type: :string},
+            campaign_id: %Schema{type: :string, format: :uuid},
+            asset_count: %Schema{type: :integer},
+            scene_count: %Schema{type: :integer},
+            parameters: %Schema{type: :object, additionalProperties: true}
+          },
+          required: [:id, :type, :status, :campaign_id]
+        },
+        links: %Schema{
+          type: :object,
+          properties: %{
+            self: %Schema{type: :string},
+            approve: %Schema{type: :string},
+            status: %Schema{type: :string}
+          }
+        }
+      },
+      required: [:data]
+    })
+  end
+
+  defmodule CampaignJobRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "CampaignJobRequest",
+      description: "Optional parameters when creating a job from a campaign.",
+      type: :object,
+      properties: %{
+        scene_count: %Schema{type: :integer, minimum: 1},
+        parameters: %Schema{type: :object, additionalProperties: true}
+      }
+    })
+  end
+
+  defmodule Asset do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "Asset",
+      description: "Media asset associated with a campaign.",
+      type: :object,
+      properties: %{
+        id: %Schema{type: :string, format: :uuid},
+        campaign_id: %Schema{type: :string, format: :uuid},
+        type: %Schema{type: :string, enum: ["image", "video", "audio"]},
+        metadata: %Schema{type: :object, additionalProperties: true},
+        source_url: %Schema{type: :string, nullable: true},
+        inserted_at: %Schema{type: :string, format: :"date-time"},
+        updated_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [:id, :type, :campaign_id]
+    })
+  end
+
+  defmodule AssetRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "AssetRequest",
+      description: "Payload used to create an asset via JSON upload.",
+      type: :object,
+      properties: %{
+        campaign_id: %Schema{type: :string, format: :uuid},
+        type: %Schema{type: :string, enum: ["image", "video", "audio"]},
+        metadata: %Schema{type: :object, additionalProperties: true},
+        source_url: %Schema{type: :string, description: "URL to download asset from"},
+        blob_data: %Schema{
+          type: :string,
+          format: :byte,
+          description: "Base64 encoded binary payload"
+        }
+      },
+      required: [:campaign_id, :type]
+    })
+  end
+
+  defmodule AssetResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "AssetResponse",
+      type: :object,
+      properties: %{
+        data: Asset
+      },
+      required: [:data]
+    })
+  end
+
+  defmodule AssetListResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "AssetListResponse",
+      type: :object,
+      properties: %{
+        data: %Schema{type: :array, items: Asset},
+        meta: %Schema{
+          type: :object,
+          properties: %{
+            total: %Schema{type: :integer},
+            limit: %Schema{type: :integer},
+            offset: %Schema{type: :integer}
+          }
+        }
+      },
+      required: [:data, :meta]
+    })
+  end
+
+  defmodule AssetBulkRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "AssetBulkRequest",
+      description: "Batch request for creating multiple assets from URLs.",
+      type: :object,
+      properties: %{
+        assets: %Schema{
+          type: :array,
+          items: AssetRequest
+        }
+      },
+      required: [:assets]
+    })
+  end
+
+  defmodule AssetBulkResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "AssetBulkResponse",
+      type: :object,
+      properties: %{
+        data: %Schema{type: :array, items: Asset},
+        meta: %Schema{
+          type: :object,
+          properties: %{
+            created: %Schema{type: :integer},
+            failed: %Schema{type: :integer},
+            errors: %Schema{
+              type: :array,
+              items: %Schema{
+                type: :object,
+                additionalProperties: true
+              }
+            }
+          }
+        }
+      },
+      required: [:data, :meta]
+    })
+  end
+
   defmodule JobCreationRequest do
     @moduledoc false
     require OpenApiSpex

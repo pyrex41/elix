@@ -6,6 +6,18 @@ defmodule BackendWeb.Api.V3.ClientController do
 
   alias Backend.Repo
   alias Backend.Schemas.{Client, Campaign, Job}
+
+  alias BackendWeb.ApiSchemas.{
+    ClientRequest,
+    ClientResponse,
+    ClientListResponse,
+    ClientStatsResponse,
+    CampaignListResponse,
+    ErrorResponse
+  }
+
+  alias OpenApiSpex.{Operation, Schema}
+  import OpenApiSpex.Operation, only: [parameter: 5, request_body: 4, response: 3]
   import Ecto.Query
   require Logger
 
@@ -123,6 +135,132 @@ defmodule BackendWeb.Api.V3.ClientController do
       _client ->
         json(conn, %{data: build_client_stats(client_id)})
     end
+  end
+
+  @doc false
+  @spec open_api_operation(atom) :: Operation.t()
+  def open_api_operation(action) do
+    fun = :"#{action}_operation"
+
+    if function_exported?(__MODULE__, fun, 0) do
+      apply(__MODULE__, fun, [])
+    else
+      nil
+    end
+  end
+
+  def index_operation do
+    %Operation{
+      tags: ["clients"],
+      summary: "List clients",
+      description: "Returns all clients.",
+      operationId: "ClientController.index",
+      responses: %{
+        200 => response("Client list", "application/json", ClientListResponse)
+      }
+    }
+  end
+
+  def show_operation do
+    %Operation{
+      tags: ["clients"],
+      summary: "Get client",
+      operationId: "ClientController.show",
+      parameters: [
+        parameter(:id, :path, :string, "Client ID",
+          example: "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8"
+        )
+      ],
+      responses: %{
+        200 => response("Client", "application/json", ClientResponse),
+        404 => response("Not found", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def create_operation do
+    %Operation{
+      tags: ["clients"],
+      summary: "Create client",
+      operationId: "ClientController.create",
+      requestBody:
+        request_body("Client payload", "application/json", ClientRequest, required: true),
+      responses: %{
+        201 => response("Created", "application/json", ClientResponse),
+        422 => response("Validation error", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def update_operation do
+    %Operation{
+      tags: ["clients"],
+      summary: "Update client",
+      operationId: "ClientController.update",
+      parameters: [
+        parameter(:id, :path, :string, "Client ID",
+          example: "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8"
+        )
+      ],
+      requestBody:
+        request_body("Client payload", "application/json", ClientRequest, required: true),
+      responses: %{
+        200 => response("Updated", "application/json", ClientResponse),
+        404 => response("Not found", "application/json", ErrorResponse),
+        422 => response("Validation error", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def delete_operation do
+    %Operation{
+      tags: ["clients"],
+      summary: "Delete client",
+      operationId: "ClientController.delete",
+      parameters: [
+        parameter(:id, :path, :string, "Client ID",
+          example: "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8"
+        )
+      ],
+      responses: %{
+        204 => response("Deleted", "application/json", %Schema{type: :null}),
+        404 => response("Not found", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def get_campaigns_operation do
+    %Operation{
+      tags: ["clients"],
+      summary: "List campaigns for client",
+      operationId: "ClientController.get_campaigns",
+      parameters: [
+        parameter(:id, :path, :string, "Client ID",
+          example: "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8"
+        )
+      ],
+      responses: %{
+        200 => response("Campaigns", "application/json", CampaignListResponse),
+        404 => response("Not found", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def stats_operation do
+    %Operation{
+      tags: ["clients"],
+      summary: "Client stats",
+      operationId: "ClientController.stats",
+      parameters: [
+        parameter(:id, :path, :string, "Client ID",
+          example: "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8"
+        )
+      ],
+      responses: %{
+        200 => response("Stats", "application/json", ClientStatsResponse),
+        404 => response("Not found", "application/json", ErrorResponse)
+      }
+    }
   end
 
   # Private helpers

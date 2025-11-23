@@ -1,0 +1,2048 @@
+{
+  "components": {
+    "responses": {},
+    "schemas": {
+      "Asset": {
+        "description": "Media asset associated with a campaign.",
+        "properties": {
+          "campaign_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inserted_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "source_url": {
+            "nullable": true,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "image",
+              "video",
+              "audio"
+            ],
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "campaign_id"
+        ],
+        "title": "Asset",
+        "type": "object"
+      },
+      "AssetBulkRequest": {
+        "description": "Batch request for creating multiple assets from URLs.",
+        "properties": {
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/AssetRequest"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "assets"
+        ],
+        "title": "AssetBulkRequest",
+        "type": "object"
+      },
+      "AssetBulkResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Asset"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "properties": {
+              "created": {
+                "type": "integer"
+              },
+              "errors": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "failed": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "AssetBulkResponse",
+        "type": "object"
+      },
+      "AssetListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Asset"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "properties": {
+              "limit": {
+                "type": "integer"
+              },
+              "offset": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "AssetListResponse",
+        "type": "object"
+      },
+      "AssetRequest": {
+        "description": "Payload used to create an asset via JSON upload.",
+        "properties": {
+          "blob_data": {
+            "description": "Base64 encoded binary payload",
+            "format": "byte",
+            "type": "string"
+          },
+          "campaign_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "source_url": {
+            "description": "URL to download asset from",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "image",
+              "video",
+              "audio"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "type"
+        ],
+        "title": "AssetRequest",
+        "type": "object"
+      },
+      "AssetResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Asset"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "AssetResponse",
+        "type": "object"
+      },
+      "Campaign": {
+        "description": "A marketing campaign tied to a client.",
+        "properties": {
+          "brief": {
+            "nullable": true,
+            "type": "string"
+          },
+          "client_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "goal": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inserted_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "product_url": {
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "nullable": true,
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "client_id",
+          "name"
+        ],
+        "title": "Campaign",
+        "type": "object"
+      },
+      "CampaignJobRequest": {
+        "description": "Optional parameters when creating a job from a campaign.",
+        "properties": {
+          "parameters": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "scene_count": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "title": "CampaignJobRequest",
+        "type": "object"
+      },
+      "CampaignJobResponse": {
+        "description": "Job summary returned when a job is created from a campaign.",
+        "properties": {
+          "data": {
+            "properties": {
+              "asset_count": {
+                "type": "integer"
+              },
+              "campaign_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "id": {
+                "type": "integer"
+              },
+              "parameters": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "scene_count": {
+                "type": "integer"
+              },
+              "status": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "status",
+              "campaign_id"
+            ],
+            "type": "object"
+          },
+          "links": {
+            "properties": {
+              "approve": {
+                "type": "string"
+              },
+              "self": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "CampaignJobResponse",
+        "type": "object"
+      },
+      "CampaignListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Campaign"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "properties": {
+              "client_id": {
+                "format": "uuid",
+                "nullable": true,
+                "type": "string"
+              },
+              "total": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "CampaignListResponse",
+        "type": "object"
+      },
+      "CampaignRequest": {
+        "description": "Payload used to create or update a campaign.",
+        "properties": {
+          "brief": {
+            "nullable": true,
+            "type": "string"
+          },
+          "client_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "goal": {
+            "nullable": true,
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "product_url": {
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "client_id"
+        ],
+        "title": "CampaignRequest",
+        "type": "object"
+      },
+      "CampaignResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Campaign"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "CampaignResponse",
+        "type": "object"
+      },
+      "CampaignStatsResponse": {
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "CampaignStatsResponse",
+        "type": "object"
+      },
+      "Client": {
+        "description": "Represents a brand or customer.",
+        "properties": {
+          "brand_guidelines": {
+            "nullable": true,
+            "type": "string"
+          },
+          "description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "homepage": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inserted_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Client",
+        "type": "object"
+      },
+      "ClientListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Client"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "properties": {
+              "total": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "ClientListResponse",
+        "type": "object"
+      },
+      "ClientRequest": {
+        "description": "Payload used to create or update a client.",
+        "properties": {
+          "brand_guidelines": {
+            "nullable": true,
+            "type": "string"
+          },
+          "description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "homepage": {
+            "nullable": true,
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ClientRequest",
+        "type": "object"
+      },
+      "ClientResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Client"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "ClientResponse",
+        "type": "object"
+      },
+      "ClientStatsResponse": {
+        "properties": {
+          "data": {
+            "properties": {
+              "campaignCount": {
+                "type": "integer"
+              },
+              "totalSpend": {
+                "type": "number"
+              },
+              "videoCount": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "ClientStatsResponse",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "Generic error envelope.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Error message or object describing the failure"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "JobApprovalResponse": {
+        "description": "Response returned after approving a job.",
+        "example": {
+          "job_id": 123,
+          "message": "Job approved successfully",
+          "status": "approved"
+        },
+        "properties": {
+          "job_id": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "job_id",
+          "status"
+        ],
+        "title": "JobApprovalResponse",
+        "type": "object"
+      },
+      "JobCreationRequest": {
+        "description": "Parameters accepted when spawning a new job.",
+        "example": {
+          "campaign_id": "5e1cb386-7e62-4a4f-92b3-938117b2a3d3",
+          "parameters": {
+            "style": "modern"
+          }
+        },
+        "properties": {
+          "campaign_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "property_types": {
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          }
+        },
+        "required": [
+          "campaign_id"
+        ],
+        "title": "JobCreationRequest",
+        "type": "object"
+      },
+      "JobCreationResponse": {
+        "description": "Response returned when a job is created.",
+        "properties": {
+          "campaign_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "client_id": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "clip_duration": {
+            "format": "float",
+            "type": "number"
+          },
+          "job_id": {
+            "description": "Job identifier",
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "num_pairs": {
+            "type": "integer"
+          },
+          "property_types": {
+            "description": "Property scene types requested.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scene_count": {
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "approved",
+              "processing",
+              "completed",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "total_assets": {
+            "type": "integer"
+          },
+          "type": {
+            "enum": [
+              "image_pairs",
+              "property_photos"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "type",
+          "scene_count"
+        ],
+        "title": "JobCreationResponse",
+        "type": "object"
+      },
+      "JobShowResponse": {
+        "description": "Response body returned when fetching a job.",
+        "properties": {
+          "current_stage": {
+            "type": "string"
+          },
+          "inserted_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "job_id": {
+            "type": "integer"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "progress_percentage": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "storyboard": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "type"
+        ],
+        "title": "JobShowResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Programmatic interface for the AI video generation platform.",
+    "title": "Backend API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/v3/assets": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "AssetController.index",
+        "parameters": [
+          {
+            "description": "Filter by campaign ID",
+            "example": "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6",
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by asset type (image/video/audio)",
+            "in": "query",
+            "name": "asset_type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max number of assets to return",
+            "example": 25,
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Offset for pagination",
+            "example": 0,
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetListResponse"
+                }
+              }
+            },
+            "description": "Assets"
+          }
+        },
+        "summary": "List assets",
+        "tags": [
+          "assets"
+        ]
+      },
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "AssetController.create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetRequest"
+              }
+            }
+          },
+          "description": "Asset payload",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create asset",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/api/v3/assets/from-url": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "AssetController.from_url",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetRequest"
+              }
+            }
+          },
+          "description": "Asset download payload",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          }
+        },
+        "summary": "Create asset from URL",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/api/v3/assets/from-urls": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "AssetController.from_urls",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetBulkRequest"
+              }
+            }
+          },
+          "description": "Bulk asset payload",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetBulkResponse"
+                }
+              }
+            },
+            "description": "Bulk created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          }
+        },
+        "summary": "Create multiple assets from URLs",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/api/v3/assets/unified": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Accepts either JSON with source_url or multipart uploads.",
+        "operationId": "AssetController.unified",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetRequest"
+              }
+            }
+          },
+          "description": "Asset payload",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Unified asset upload",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/api/v3/assets/{id}": {
+      "delete": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "AssetController.delete",
+        "parameters": [
+          {
+            "description": "Asset ID",
+            "example": "a8e7fa24-2513-4e20-9605-927d0f5b3dc9",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            },
+            "description": "Deleted"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Delete asset",
+        "tags": [
+          "assets"
+        ]
+      },
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "AssetController.show",
+        "parameters": [
+          {
+            "description": "Asset ID",
+            "example": "a8e7fa24-2513-4e20-9605-927d0f5b3dc9",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetResponse"
+                }
+              }
+            },
+            "description": "Asset"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get asset",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/api/v3/campaigns": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "CampaignController.index",
+        "parameters": [
+          {
+            "description": "Filter by client ID",
+            "example": "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8",
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignListResponse"
+                }
+              }
+            },
+            "description": "Campaigns"
+          }
+        },
+        "summary": "List campaigns",
+        "tags": [
+          "campaigns"
+        ]
+      },
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "CampaignController.create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignRequest"
+              }
+            }
+          },
+          "description": "Campaign payload",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create campaign",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v3/campaigns/{id}": {
+      "delete": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "CampaignController.delete",
+        "parameters": [
+          {
+            "description": "Campaign ID",
+            "example": "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            },
+            "description": "Deleted"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Delete campaign",
+        "tags": [
+          "campaigns"
+        ]
+      },
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "CampaignController.show",
+        "parameters": [
+          {
+            "description": "Campaign ID",
+            "example": "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            },
+            "description": "Campaign"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get campaign",
+        "tags": [
+          "campaigns"
+        ]
+      },
+      "patch": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "CampaignController.update (2)",
+        "parameters": [
+          {
+            "description": "Campaign ID",
+            "example": "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignRequest"
+              }
+            }
+          },
+          "description": "Campaign payload",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            },
+            "description": "Updated"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update campaign",
+        "tags": [
+          "campaigns"
+        ]
+      },
+      "put": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "CampaignController.update",
+        "parameters": [
+          {
+            "description": "Campaign ID",
+            "example": "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignRequest"
+              }
+            }
+          },
+          "description": "Campaign payload",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignResponse"
+                }
+              }
+            },
+            "description": "Updated"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update campaign",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v3/campaigns/{id}/assets": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "CampaignController.get_assets",
+        "parameters": [
+          {
+            "description": "Campaign ID",
+            "example": "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetListResponse"
+                }
+              }
+            },
+            "description": "Assets"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "List campaign assets",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v3/campaigns/{id}/create-job": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Generates a job using all assets in the campaign.",
+        "operationId": "CampaignController.create_job",
+        "parameters": [
+          {
+            "description": "Campaign ID",
+            "example": "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignJobRequest"
+              }
+            }
+          },
+          "description": "Job options",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignJobResponse"
+                }
+              }
+            },
+            "description": "Job created"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create job from campaign",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v3/campaigns/{id}/stats": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "CampaignController.stats",
+        "parameters": [
+          {
+            "description": "Campaign ID",
+            "example": "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignStatsResponse"
+                }
+              }
+            },
+            "description": "Stats"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Campaign stats",
+        "tags": [
+          "campaigns"
+        ]
+      }
+    },
+    "/api/v3/clients": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Returns all clients.",
+        "operationId": "ClientController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientListResponse"
+                }
+              }
+            },
+            "description": "Client list"
+          }
+        },
+        "summary": "List clients",
+        "tags": [
+          "clients"
+        ]
+      },
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "ClientController.create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRequest"
+              }
+            }
+          },
+          "description": "Client payload",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create client",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
+    "/api/v3/clients/{id}": {
+      "delete": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "ClientController.delete",
+        "parameters": [
+          {
+            "description": "Client ID",
+            "example": "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            },
+            "description": "Deleted"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Delete client",
+        "tags": [
+          "clients"
+        ]
+      },
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "ClientController.show",
+        "parameters": [
+          {
+            "description": "Client ID",
+            "example": "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientResponse"
+                }
+              }
+            },
+            "description": "Client"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get client",
+        "tags": [
+          "clients"
+        ]
+      },
+      "patch": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "ClientController.update (2)",
+        "parameters": [
+          {
+            "description": "Client ID",
+            "example": "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRequest"
+              }
+            }
+          },
+          "description": "Client payload",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientResponse"
+                }
+              }
+            },
+            "description": "Updated"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update client",
+        "tags": [
+          "clients"
+        ]
+      },
+      "put": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "ClientController.update",
+        "parameters": [
+          {
+            "description": "Client ID",
+            "example": "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRequest"
+              }
+            }
+          },
+          "description": "Client payload",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientResponse"
+                }
+              }
+            },
+            "description": "Updated"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update client",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
+    "/api/v3/clients/{id}/campaigns": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "ClientController.get_campaigns",
+        "parameters": [
+          {
+            "description": "Client ID",
+            "example": "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignListResponse"
+                }
+              }
+            },
+            "description": "Campaigns"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "List campaigns for client",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
+    "/api/v3/clients/{id}/stats": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "ClientController.stats",
+        "parameters": [
+          {
+            "description": "Client ID",
+            "example": "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientStatsResponse"
+                }
+              }
+            },
+            "description": "Stats"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Client stats",
+        "tags": [
+          "clients"
+        ]
+      }
+    },
+    "/api/v3/jobs/from-image-pairs": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Creates a job driven by paired image templates for a campaign.",
+        "operationId": "JobCreationController.from_image_pairs",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobCreationRequest"
+              }
+            }
+          },
+          "description": "Job creation payload",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreationResponse"
+                }
+              }
+            },
+            "description": "Job created"
+          }
+        },
+        "summary": "Create job from image pairs",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v3/jobs/from-property-photos": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Creates a job optimised for property photo storyboards.",
+        "operationId": "JobCreationController.from_property_photos",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobCreationRequest"
+              }
+            }
+          },
+          "description": "Job creation payload",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreationResponse"
+                }
+              }
+            },
+            "description": "Job created"
+          }
+        },
+        "summary": "Create job from property photos",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v3/jobs/{id}": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Returns current status, progress, and storyboard metadata for a job.",
+        "operationId": "JobController.show",
+        "parameters": [
+          {
+            "description": "Job ID",
+            "example": 123,
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobShowResponse"
+                }
+              }
+            },
+            "description": "Job response"
+          }
+        },
+        "summary": "Get job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    },
+    "/api/v3/jobs/{id}/approve": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Transition a pending job into processing by dispatching it to the workflow.",
+        "operationId": "JobController.approve",
+        "parameters": [
+          {
+            "description": "Job ID",
+            "example": 123,
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobApprovalResponse"
+                }
+              }
+            },
+            "description": "Approval response"
+          }
+        },
+        "summary": "Approve job",
+        "tags": [
+          "jobs"
+        ]
+      }
+    }
+  },
+  "security": [],
+  "servers": [
+    {
+      "url": "http://localhost:4000",
+      "variables": {}
+    }
+  ],
+  "tags": []
+}

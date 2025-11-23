@@ -3,11 +3,35 @@ defmodule BackendWeb.Api.V3.AssetController do
 
   alias Backend.Repo
   alias Backend.Schemas.{Asset, Campaign}
+
+  alias BackendWeb.ApiSchemas.{
+    AssetRequest,
+    AssetResponse,
+    AssetListResponse,
+    AssetBulkRequest,
+    AssetBulkResponse,
+    ErrorResponse
+  }
+
+  alias OpenApiSpex.{Operation, Schema}
+  import OpenApiSpex.Operation, only: [parameter: 5, request_body: 4, response: 3]
   import Ecto.Query
   require Logger
 
   @default_limit 25
   @max_limit 1000
+
+  @doc false
+  @spec open_api_operation(atom) :: Operation.t() | nil
+  def open_api_operation(action) do
+    fun = :"#{action}_operation"
+
+    if function_exported?(__MODULE__, fun, 0) do
+      apply(__MODULE__, fun, [])
+    else
+      nil
+    end
+  end
 
   def index(conn, params) do
     params = normalize_asset_params(params)
@@ -857,5 +881,126 @@ defmodule BackendWeb.Api.V3.AssetController do
         opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
       end)
     end)
+  end
+
+  def index_operation do
+    %Operation{
+      tags: ["assets"],
+      summary: "List assets",
+      operationId: "AssetController.index",
+      parameters: [
+        parameter(:campaign_id, :query, :string, "Filter by campaign ID",
+          required: false,
+          example: "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6"
+        ),
+        parameter(:asset_type, :query, :string, "Filter by asset type (image/video/audio)",
+          required: false
+        ),
+        parameter(:limit, :query, :integer, "Max number of assets to return",
+          required: false,
+          example: 25
+        ),
+        parameter(:offset, :query, :integer, "Offset for pagination",
+          required: false,
+          example: 0
+        )
+      ],
+      responses: %{
+        200 => response("Assets", "application/json", AssetListResponse)
+      }
+    }
+  end
+
+  def show_operation do
+    %Operation{
+      tags: ["assets"],
+      summary: "Get asset",
+      operationId: "AssetController.show",
+      parameters: [
+        parameter(:id, :path, :string, "Asset ID",
+          example: "a8e7fa24-2513-4e20-9605-927d0f5b3dc9"
+        )
+      ],
+      responses: %{
+        200 => response("Asset", "application/json", AssetResponse),
+        404 => response("Not found", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def create_operation do
+    %Operation{
+      tags: ["assets"],
+      summary: "Create asset",
+      operationId: "AssetController.create",
+      requestBody:
+        request_body("Asset payload", "application/json", AssetRequest, required: true),
+      responses: %{
+        201 => response("Created", "application/json", AssetResponse),
+        400 => response("Invalid request", "application/json", ErrorResponse),
+        422 => response("Validation error", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def delete_operation do
+    %Operation{
+      tags: ["assets"],
+      summary: "Delete asset",
+      operationId: "AssetController.delete",
+      parameters: [
+        parameter(:id, :path, :string, "Asset ID",
+          example: "a8e7fa24-2513-4e20-9605-927d0f5b3dc9"
+        )
+      ],
+      responses: %{
+        204 => response("Deleted", "application/json", %Schema{type: :null}),
+        404 => response("Not found", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def from_url_operation do
+    %Operation{
+      tags: ["assets"],
+      summary: "Create asset from URL",
+      operationId: "AssetController.from_url",
+      requestBody:
+        request_body("Asset download payload", "application/json", AssetRequest, required: true),
+      responses: %{
+        201 => response("Created", "application/json", AssetResponse),
+        400 => response("Invalid request", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def from_urls_operation do
+    %Operation{
+      tags: ["assets"],
+      summary: "Create multiple assets from URLs",
+      operationId: "AssetController.from_urls",
+      requestBody:
+        request_body("Bulk asset payload", "application/json", AssetBulkRequest, required: true),
+      responses: %{
+        201 => response("Bulk created", "application/json", AssetBulkResponse),
+        400 => response("Invalid request", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def unified_operation do
+    %Operation{
+      tags: ["assets"],
+      summary: "Unified asset upload",
+      description: "Accepts either JSON with source_url or multipart uploads.",
+      operationId: "AssetController.unified",
+      requestBody:
+        request_body("Asset payload", "application/json", AssetRequest, required: false),
+      responses: %{
+        201 => response("Created", "application/json", AssetResponse),
+        400 => response("Invalid request", "application/json", ErrorResponse),
+        422 => response("Validation error", "application/json", ErrorResponse)
+      }
+    }
   end
 end

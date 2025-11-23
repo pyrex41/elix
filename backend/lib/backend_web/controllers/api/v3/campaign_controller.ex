@@ -6,6 +6,20 @@ defmodule BackendWeb.Api.V3.CampaignController do
 
   alias Backend.Repo
   alias Backend.Schemas.{Campaign, Asset, Job}
+
+  alias BackendWeb.ApiSchemas.{
+    CampaignRequest,
+    CampaignResponse,
+    CampaignListResponse,
+    CampaignStatsResponse,
+    CampaignJobRequest,
+    CampaignJobResponse,
+    AssetListResponse,
+    ErrorResponse
+  }
+
+  alias OpenApiSpex.{Operation, Schema}
+  import OpenApiSpex.Operation, only: [parameter: 5, request_body: 4, response: 3]
   import Ecto.Query
   require Logger
 
@@ -204,6 +218,158 @@ defmodule BackendWeb.Api.V3.CampaignController do
       _campaign ->
         json(conn, %{data: campaign_stats(campaign_id)})
     end
+  end
+
+  @doc false
+  @spec open_api_operation(atom) :: Operation.t() | nil
+  def open_api_operation(action) do
+    fun = :"#{action}_operation"
+
+    if function_exported?(__MODULE__, fun, 0) do
+      apply(__MODULE__, fun, [])
+    else
+      nil
+    end
+  end
+
+  def index_operation do
+    %Operation{
+      tags: ["campaigns"],
+      summary: "List campaigns",
+      operationId: "CampaignController.index",
+      parameters: [
+        parameter(:client_id, :query, :string, "Filter by client ID",
+          required: false,
+          example: "b6f9fdd3-2c88-4aa4-8857-8a1da43e3bb8"
+        )
+      ],
+      responses: %{
+        200 => response("Campaigns", "application/json", CampaignListResponse)
+      }
+    }
+  end
+
+  def show_operation do
+    %Operation{
+      tags: ["campaigns"],
+      summary: "Get campaign",
+      operationId: "CampaignController.show",
+      parameters: [
+        parameter(:id, :path, :string, "Campaign ID",
+          example: "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6"
+        )
+      ],
+      responses: %{
+        200 => response("Campaign", "application/json", CampaignResponse),
+        404 => response("Not found", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def create_operation do
+    %Operation{
+      tags: ["campaigns"],
+      summary: "Create campaign",
+      operationId: "CampaignController.create",
+      requestBody:
+        request_body("Campaign payload", "application/json", CampaignRequest, required: true),
+      responses: %{
+        201 => response("Created", "application/json", CampaignResponse),
+        422 => response("Validation error", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def update_operation do
+    %Operation{
+      tags: ["campaigns"],
+      summary: "Update campaign",
+      operationId: "CampaignController.update",
+      parameters: [
+        parameter(:id, :path, :string, "Campaign ID",
+          example: "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6"
+        )
+      ],
+      requestBody:
+        request_body("Campaign payload", "application/json", CampaignRequest, required: true),
+      responses: %{
+        200 => response("Updated", "application/json", CampaignResponse),
+        404 => response("Not found", "application/json", ErrorResponse),
+        422 => response("Validation error", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def delete_operation do
+    %Operation{
+      tags: ["campaigns"],
+      summary: "Delete campaign",
+      operationId: "CampaignController.delete",
+      parameters: [
+        parameter(:id, :path, :string, "Campaign ID",
+          example: "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6"
+        )
+      ],
+      responses: %{
+        204 => response("Deleted", "application/json", %Schema{type: :null}),
+        404 => response("Not found", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def get_assets_operation do
+    %Operation{
+      tags: ["campaigns"],
+      summary: "List campaign assets",
+      operationId: "CampaignController.get_assets",
+      parameters: [
+        parameter(:id, :path, :string, "Campaign ID",
+          example: "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6"
+        )
+      ],
+      responses: %{
+        200 => response("Assets", "application/json", AssetListResponse),
+        404 => response("Not found", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def create_job_operation do
+    %Operation{
+      tags: ["campaigns"],
+      summary: "Create job from campaign",
+      description: "Generates a job using all assets in the campaign.",
+      operationId: "CampaignController.create_job",
+      parameters: [
+        parameter(:id, :path, :string, "Campaign ID",
+          example: "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6"
+        )
+      ],
+      requestBody:
+        request_body("Job options", "application/json", CampaignJobRequest, required: false),
+      responses: %{
+        201 => response("Job created", "application/json", CampaignJobResponse),
+        404 => response("Not found", "application/json", ErrorResponse),
+        422 => response("Validation error", "application/json", ErrorResponse)
+      }
+    }
+  end
+
+  def stats_operation do
+    %Operation{
+      tags: ["campaigns"],
+      summary: "Campaign stats",
+      operationId: "CampaignController.stats",
+      parameters: [
+        parameter(:id, :path, :string, "Campaign ID",
+          example: "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6"
+        )
+      ],
+      responses: %{
+        200 => response("Stats", "application/json", CampaignStatsResponse),
+        404 => response("Not found", "application/json", ErrorResponse)
+      }
+    }
   end
 
   # Private helpers
