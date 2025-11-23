@@ -3,29 +3,10 @@ defmodule BackendWeb.Api.V3.JobController do
   Controller for job management endpoints in API v3.
   """
   use BackendWeb, :controller
-  use OpenApiSpex.ControllerSpecs
   require Logger
   alias Backend.Repo
   alias Backend.Schemas.Job
   alias Backend.Workflow.Coordinator
-  alias BackendWeb.Schemas.{JobSchemas, CommonSchemas}
-
-  tags ["Jobs"]
-
-  # Add validation plug for request casting and validation
-  plug OpenApiSpex.Plug.CastAndValidate, json_render_error_v2: true
-
-  operation :approve,
-    summary: "Approve a job",
-    description: "Approves a pending job and triggers the processing workflow",
-    parameters: [
-      id: [in: :path, type: :integer, description: "Job ID", required: true, example: 123]
-    ],
-    responses: %{
-      200 => {"Job approved", "application/json", JobSchemas.JobApprovalResponse},
-      404 => {"Job not found", "application/json", CommonSchemas.NotFoundResponse},
-      422 => {"Cannot approve job", "application/json", CommonSchemas.ValidationErrorResponse}
-    }
 
   @doc """
   POST /api/v3/jobs/:id/approve
@@ -76,17 +57,6 @@ defmodule BackendWeb.Api.V3.JobController do
         end
     end
   end
-
-  operation :show,
-    summary: "Get job details",
-    description: "Returns job status, progress, and other details",
-    parameters: [
-      id: [in: :path, type: :integer, description: "Job ID", required: true, example: 123]
-    ],
-    responses: %{
-      200 => {"Job details", "application/json", JobSchemas.JobResponse},
-      404 => {"Job not found", "application/json", CommonSchemas.NotFoundResponse}
-    }
 
   @doc """
   GET /api/v3/jobs/:id

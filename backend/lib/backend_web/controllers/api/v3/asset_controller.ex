@@ -1,62 +1,9 @@
 defmodule BackendWeb.Api.V3.AssetController do
   use BackendWeb, :controller
-  use OpenApiSpex.ControllerSpecs
 
   alias Backend.Repo
   alias Backend.Schemas.Asset
-  alias BackendWeb.Schemas.{AssetSchemas, CommonSchemas}
   require Logger
-
-  tags ["Assets"]
-
-  # Add validation plug for request casting and validation
-  plug OpenApiSpex.Plug.CastAndValidate, json_render_error_v2: true
-
-  operation :unified,
-    summary: "Upload an asset",
-    description: "Upload an asset via file upload or URL download. Supports images, videos, and audio.",
-    request_body:
-      {"Asset upload request", "multipart/form-data",
-       %OpenApiSpex.Schema{
-         type: :object,
-         properties: %{
-           file: %OpenApiSpex.Schema{
-             type: :string,
-             format: :binary,
-             description: "File to upload (for direct upload)"
-           },
-           source_url: %OpenApiSpex.Schema{
-             type: :string,
-             format: :uri,
-             description: "URL to download asset from (alternative to file upload)"
-           },
-           type: %OpenApiSpex.Schema{
-             type: :string,
-             enum: [:image, :video, :audio],
-             description: "Asset type"
-           },
-           campaign_id: %OpenApiSpex.Schema{
-             type: :string,
-             format: :uuid,
-             description: "Associated campaign ID"
-           },
-           metadata: %OpenApiSpex.Schema{
-             type: :object,
-             description: "Additional metadata",
-             additionalProperties: true
-           }
-         },
-         oneOf: [
-           %OpenApiSpex.Schema{required: [:file]},
-           %OpenApiSpex.Schema{required: [:source_url]}
-         ]
-       }},
-    responses: %{
-      201 => {"Asset created", "application/json", AssetSchemas.AssetResponse},
-      400 => {"Bad request", "application/json", CommonSchemas.ErrorResponse},
-      422 => {"Validation error", "application/json", CommonSchemas.ValidationErrorResponse},
-      500 => {"Server error", "application/json", CommonSchemas.ErrorResponse}
-    }
 
   @doc """
   POST /api/v3/assets/unified
@@ -136,24 +83,6 @@ defmodule BackendWeb.Api.V3.AssetController do
         |> json(%{error: "Failed to process asset upload"})
     end
   end
-
-  operation :data,
-    summary: "Get asset data",
-    description: "Stream asset blob data efficiently. Returns the actual file content with appropriate content-type headers.",
-    parameters: [
-      id: [
-        in: :path,
-        type: :integer,
-        description: "Asset ID",
-        required: true,
-        example: 123
-      ]
-    ],
-    responses: %{
-      200 => {"Asset data", "application/octet-stream", %OpenApiSpex.Schema{type: :string, format: :binary}},
-      404 => {"Asset not found", "application/json", CommonSchemas.NotFoundResponse},
-      500 => {"Server error", "application/json", CommonSchemas.ErrorResponse}
-    }
 
   @doc """
   GET /api/v3/assets/:id/data

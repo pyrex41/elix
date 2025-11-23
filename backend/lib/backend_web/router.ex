@@ -3,7 +3,6 @@ defmodule BackendWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
-    plug OpenApiSpex.Plug.PutApiSpec, module: BackendWeb.ApiSpec
   end
 
   pipeline :browser do
@@ -22,6 +21,15 @@ defmodule BackendWeb.Router do
 
     # API v3 routes
     scope "/v3", Api.V3 do
+      # Client management endpoints
+      resources "/clients", ClientController, except: [:new, :edit]
+      get "/clients/:id/campaigns", ClientController, :get_campaigns
+
+      # Campaign management endpoints
+      resources "/campaigns", CampaignController, except: [:new, :edit]
+      get "/campaigns/:id/assets", CampaignController, :get_assets
+      post "/campaigns/:id/create-job", CampaignController, :create_job
+
       # Asset management endpoints
       post "/assets/unified", AssetController, :unified
       get "/assets/:id/data", AssetController, :data
@@ -52,13 +60,6 @@ defmodule BackendWeb.Router do
       get "/audio/status/:job_id", AudioController, :status
       get "/audio/:job_id/download", AudioController, :download
     end
-  end
-
-  # SwaggerUI for API documentation
-  scope "/" do
-    pipe_through :browser
-
-    get "/swaggerui", OpenApiSpex.Plug.SwaggerUI, path: "/api/openapi"
   end
 
   # Enable LiveDashboard in development
