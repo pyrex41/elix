@@ -8,6 +8,9 @@ defmodule BackendWeb.Api.V3.JobCreationController do
   alias Backend.Repo
   alias Backend.Schemas.{Campaign, Asset, Job, SubJob}
   alias Backend.Services.AiService
+  alias BackendWeb.ApiSchemas.{JobCreationRequest, JobCreationResponse}
+  alias OpenApiSpex.Operation
+  import OpenApiSpex.Operation, only: [request_body: 4, response: 3]
   import Ecto.Query
 
   @pubsub_name Backend.PubSub
@@ -189,6 +192,44 @@ defmodule BackendWeb.Api.V3.JobCreationController do
         |> put_status(:internal_server_error)
         |> json(%{error: "Failed to create job", details: to_string(reason)})
     end
+  end
+
+  @doc false
+  @spec open_api_operation(atom) :: Operation.t()
+  def open_api_operation(action) do
+    apply(__MODULE__, :"#{action}_operation", [])
+  end
+
+  def from_image_pairs_operation do
+    %Operation{
+      tags: ["jobs"],
+      summary: "Create job from image pairs",
+      description: "Creates a job driven by paired image templates for a campaign.",
+      operationId: "JobCreationController.from_image_pairs",
+      requestBody:
+        request_body("Job creation payload", "application/json", JobCreationRequest,
+          required: true
+        ),
+      responses: %{
+        201 => response("Job created", "application/json", JobCreationResponse)
+      }
+    }
+  end
+
+  def from_property_photos_operation do
+    %Operation{
+      tags: ["jobs"],
+      summary: "Create job from property photos",
+      description: "Creates a job optimised for property photo storyboards.",
+      operationId: "JobCreationController.from_property_photos",
+      requestBody:
+        request_body("Job creation payload", "application/json", JobCreationRequest,
+          required: true
+        ),
+      responses: %{
+        201 => response("Job created", "application/json", JobCreationResponse)
+      }
+    }
   end
 
   # Private helper functions

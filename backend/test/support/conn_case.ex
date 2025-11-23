@@ -33,6 +33,12 @@ defmodule BackendWeb.ConnCase do
 
   setup tags do
     Backend.DataCase.setup_sandbox(tags)
-    {:ok, conn: Phoenix.ConnTest.build_conn()}
+
+    conn =
+      Phoenix.ConnTest.build_conn()
+      |> Plug.Conn.put_req_header("accept", "application/json")
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+
+    {:ok, conn: conn}
   end
 end

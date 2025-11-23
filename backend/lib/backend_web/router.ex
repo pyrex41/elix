@@ -17,11 +17,19 @@ defmodule BackendWeb.Router do
     plug :put_secure_browser_headers
   end
 
-  scope "/api", BackendWeb do
+  scope "/api" do
     pipe_through :api
 
-    # OpenAPI spec endpoint
-    get "/openapi", OpenApiController, :spec
+    # OpenAPI spec endpoints (legacy /openapi kept for backwards compatibility)
+    get "/openapi.json", OpenApiSpex.Plug.RenderSpec, []
+    get "/openapi", OpenApiSpex.Plug.RenderSpec, []
+  end
+
+  scope "/" do
+    pipe_through :browser
+
+    # Swagger UI served from CDN
+    get "/swaggerui", OpenApiSpex.Plug.SwaggerUI, path: "/api/openapi.json"
   end
 
   scope "/api", BackendWeb do
