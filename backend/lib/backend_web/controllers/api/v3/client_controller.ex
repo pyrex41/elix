@@ -6,8 +6,152 @@ defmodule BackendWeb.Api.V3.ClientController do
 
   alias Backend.Repo
   alias Backend.Schemas.{Client, Campaign, Job}
+  alias BackendWeb.Schemas.{ClientSchemas, CampaignSchemas, CommonSchemas}
+  alias OpenApiSpex.Operation
   import Ecto.Query
   require Logger
+
+  @doc """
+  OpenAPI operation specification callback
+  """
+  def open_api_operation(action) do
+    operation = String.to_existing_atom("#{action}_operation")
+    apply(__MODULE__, operation, [])
+  end
+
+  def index_operation do
+    %Operation{
+      tags: ["Clients"],
+      summary: "List all clients",
+      description: "Retrieve a list of all clients",
+      operationId: "ClientController.index",
+      security: [%{"api_key" => []}],
+      responses: %{
+        200 => Operation.response("Clients", "application/json", ClientSchemas.ClientsResponse),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def show_operation do
+    %Operation{
+      tags: ["Clients"],
+      summary: "Get client by ID",
+      description: "Retrieve a single client by its ID",
+      operationId: "ClientController.show",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Client ID", example: "123e4567-e89b-12d3-a456-426614174000")
+      ],
+      responses: %{
+        200 => Operation.response("Client", "application/json", ClientSchemas.ClientResponse),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def create_operation do
+    %Operation{
+      tags: ["Clients"],
+      summary: "Create a new client",
+      description: "Create a new client with the provided attributes",
+      operationId: "ClientController.create",
+      security: [%{"api_key" => []}],
+      requestBody:
+        Operation.request_body("Client attributes", "application/json", ClientSchemas.ClientRequest, required: true),
+      responses: %{
+        201 => Operation.response("Client created", "application/json", ClientSchemas.ClientResponse),
+        422 =>
+          Operation.response("Validation error", "application/json", CommonSchemas.ValidationErrorResponse),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def update_operation do
+    %Operation{
+      tags: ["Clients"],
+      summary: "Update a client",
+      description: "Update an existing client's attributes",
+      operationId: "ClientController.update",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Client ID", example: "123e4567-e89b-12d3-a456-426614174000")
+      ],
+      requestBody:
+        Operation.request_body("Client attributes", "application/json", ClientSchemas.ClientRequest, required: true),
+      responses: %{
+        200 => Operation.response("Client updated", "application/json", ClientSchemas.ClientResponse),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        422 =>
+          Operation.response("Validation error", "application/json", CommonSchemas.ValidationErrorResponse),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def delete_operation do
+    %Operation{
+      tags: ["Clients"],
+      summary: "Delete a client",
+      description: "Delete a client by ID",
+      operationId: "ClientController.delete",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Client ID", example: "123e4567-e89b-12d3-a456-426614174000")
+      ],
+      responses: %{
+        204 => Operation.response("No Content", "application/json", CommonSchemas.NoContentResponse),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def get_campaigns_operation do
+    %Operation{
+      tags: ["Clients"],
+      summary: "Get client's campaigns",
+      description: "Retrieve all campaigns for a specific client",
+      operationId: "ClientController.get_campaigns",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Client ID", example: "123e4567-e89b-12d3-a456-426614174000")
+      ],
+      responses: %{
+        200 =>
+          Operation.response("Campaigns", "application/json", CampaignSchemas.CampaignsResponse),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def stats_operation do
+    %Operation{
+      tags: ["Clients"],
+      summary: "Get client statistics",
+      description: "Retrieve statistics for a specific client",
+      operationId: "ClientController.stats",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Client ID", example: "123e4567-e89b-12d3-a456-426614174000")
+      ],
+      responses: %{
+        200 => Operation.response("Client stats", "application/json", ClientSchemas.ClientStats),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
 
   def index(conn, _params) do
     clients = Repo.all(Client)

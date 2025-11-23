@@ -3,6 +3,7 @@ defmodule BackendWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+    plug OpenApiSpex.Plug.PutApiSpec, module: BackendWeb.ApiSpec
   end
 
   pipeline :api_authenticated do
@@ -15,13 +16,21 @@ defmodule BackendWeb.Router do
     plug :fetch_flash
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug OpenApiSpex.Plug.PutApiSpec, module: BackendWeb.ApiSpec
   end
 
   scope "/api", BackendWeb do
     pipe_through :api
 
-    # OpenAPI spec endpoint
-    get "/openapi", OpenApiController, :spec
+    # OpenAPI spec endpoint (JSON)
+    get "/openapi", OpenApiSpex.Plug.RenderSpec, []
+  end
+
+  scope "/", BackendWeb do
+    pipe_through :browser
+
+    # SwaggerUI endpoint
+    get "/swaggerui", OpenApiSpex.Plug.SwaggerUI, path: "/api/openapi"
   end
 
   scope "/api", BackendWeb do

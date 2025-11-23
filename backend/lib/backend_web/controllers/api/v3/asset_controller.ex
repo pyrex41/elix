@@ -3,11 +3,144 @@ defmodule BackendWeb.Api.V3.AssetController do
 
   alias Backend.Repo
   alias Backend.Schemas.{Asset, Campaign}
+  alias BackendWeb.Schemas.{AssetSchemas, CommonSchemas}
+  alias OpenApiSpex.Operation
   import Ecto.Query
   require Logger
 
   @default_limit 25
   @max_limit 1000
+
+  @doc """
+  OpenAPI operation specification callback
+  """
+  def open_api_operation(action) do
+    operation = String.to_existing_atom("#{action}_operation")
+    apply(__MODULE__, operation, [])
+  end
+
+  def index_operation do
+    %Operation{
+      tags: ["Assets"],
+      summary: "List all assets",
+      description: "Retrieve a paginated list of assets with optional filtering",
+      operationId: "AssetController.index",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:campaign_id, :query, :string, "Filter by campaign ID"),
+        Operation.parameter(:type, :query, :string, "Filter by asset type (image, video, audio)"),
+        Operation.parameter(:limit, :query, :integer, "Number of results per page (default: 25, max: 1000)"),
+        Operation.parameter(:offset, :query, :integer, "Pagination offset (default: 0)")
+      ],
+      responses: %{
+        200 => Operation.response("Assets", "application/json", AssetSchemas.AssetsResponse),
+        401 => Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def show_operation do
+    %Operation{
+      tags: ["Assets"],
+      summary: "Get asset by ID",
+      description: "Retrieve a single asset by its ID",
+      operationId: "AssetController.show",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Asset ID", example: "323e4567-e89b-12d3-a456-426614174000")
+      ],
+      responses: %{
+        200 => Operation.response("Asset", "application/json", AssetSchemas.AssetResponse),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        401 => Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def create_operation do
+    %Operation{
+      tags: ["Assets"],
+      summary: "Create a new asset",
+      description: "Create a new asset via file upload or source URL",
+      operationId: "AssetController.create",
+      security: [%{"api_key" => []}],
+      requestBody: Operation.request_body("Asset attributes", "application/json", AssetSchemas.AssetRequest, required: true),
+      responses: %{
+        201 => Operation.response("Asset created", "application/json", AssetSchemas.AssetResponse),
+        400 => Operation.response("Bad Request", "application/json", CommonSchemas.ErrorResponse),
+        422 => Operation.response("Validation error", "application/json", CommonSchemas.ValidationErrorResponse),
+        401 => Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def delete_operation do
+    %Operation{
+      tags: ["Assets"],
+      summary: "Delete an asset",
+      description: "Delete an asset by ID",
+      operationId: "AssetController.delete",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Asset ID", example: "323e4567-e89b-12d3-a456-426614174000")
+      ],
+      responses: %{
+        204 => Operation.response("No Content", "application/json", CommonSchemas.NoContentResponse),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        401 => Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def from_url_operation do
+    %Operation{
+      tags: ["Assets"],
+      summary: "Create asset from URL",
+      description: "Create a new asset by downloading from a URL",
+      operationId: "AssetController.from_url",
+      security: [%{"api_key" => []}],
+      requestBody: Operation.request_body("Asset from URL", "application/json", AssetSchemas.AssetFromUrlRequest, required: true),
+      responses: %{
+        201 => Operation.response("Asset created", "application/json", AssetSchemas.AssetResponse),
+        400 => Operation.response("Bad Request", "application/json", CommonSchemas.ErrorResponse),
+        422 => Operation.response("Validation error", "application/json", CommonSchemas.ValidationErrorResponse),
+        401 => Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def from_urls_operation do
+    %Operation{
+      tags: ["Assets"],
+      summary: "Create multiple assets from URLs",
+      description: "Create multiple assets by downloading from URLs",
+      operationId: "AssetController.from_urls",
+      security: [%{"api_key" => []}],
+      requestBody: Operation.request_body("Assets from URLs", "application/json", AssetSchemas.AssetFromUrlsRequest, required: true),
+      responses: %{
+        201 => Operation.response("Assets created", "application/json", AssetSchemas.AssetsResponse),
+        400 => Operation.response("Bad Request", "application/json", CommonSchemas.ErrorResponse),
+        401 => Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def unified_operation do
+    %Operation{
+      tags: ["Assets"],
+      summary: "Create asset (unified endpoint)",
+      description: "Create a new asset via file upload or URL download. Supports both multipart file uploads and JSON with URL.",
+      operationId: "AssetController.unified",
+      security: [%{"api_key" => []}],
+      requestBody: Operation.request_body("Asset upload or URL", "application/json", AssetSchemas.AssetRequest, required: true),
+      responses: %{
+        201 => Operation.response("Asset created", "application/json", AssetSchemas.AssetResponse),
+        400 => Operation.response("Bad Request", "application/json", CommonSchemas.ErrorResponse),
+        422 => Operation.response("Validation error", "application/json", CommonSchemas.ValidationErrorResponse),
+        401 => Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
 
   def index(conn, params) do
     params = normalize_asset_params(params)

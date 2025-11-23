@@ -50,7 +50,8 @@ defmodule Backend.MixProject do
       {:jason, "~> 1.4"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:req, "~> 0.4"}
+      {:req, "~> 0.4"},
+      {:open_api_spex, "~> 3.4"}
     ]
   end
 

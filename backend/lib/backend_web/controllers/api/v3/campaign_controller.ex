@@ -6,8 +6,251 @@ defmodule BackendWeb.Api.V3.CampaignController do
 
   alias Backend.Repo
   alias Backend.Schemas.{Campaign, Asset, Job}
+  alias BackendWeb.Schemas.{CampaignSchemas, AssetSchemas, JobSchemas, CommonSchemas}
+  alias OpenApiSpex.Operation
   import Ecto.Query
   require Logger
+
+  @doc """
+  OpenAPI operation specification callback
+  """
+  def open_api_operation(action) do
+    operation = String.to_existing_atom("#{action}_operation")
+    apply(__MODULE__, operation, [])
+  end
+
+  def index_operation do
+    %Operation{
+      tags: ["Campaigns"],
+      summary: "List all campaigns",
+      description: "Retrieve a list of all campaigns, optionally filtered by client_id",
+      operationId: "CampaignController.index",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:client_id, :query, :string, "Filter by client ID",
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        )
+      ],
+      responses: %{
+        200 =>
+          Operation.response("Campaigns", "application/json", CampaignSchemas.CampaignsResponse),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def show_operation do
+    %Operation{
+      tags: ["Campaigns"],
+      summary: "Get campaign by ID",
+      description: "Retrieve a single campaign by its ID",
+      operationId: "CampaignController.show",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Campaign ID",
+          example: "223e4567-e89b-12d3-a456-426614174000"
+        )
+      ],
+      responses: %{
+        200 =>
+          Operation.response("Campaign", "application/json", CampaignSchemas.CampaignResponse),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def create_operation do
+    %Operation{
+      tags: ["Campaigns"],
+      summary: "Create a new campaign",
+      description: "Create a new campaign with the provided attributes",
+      operationId: "CampaignController.create",
+      security: [%{"api_key" => []}],
+      requestBody:
+        Operation.request_body("Campaign attributes", "application/json",
+          CampaignSchemas.CampaignRequest,
+          required: true
+        ),
+      responses: %{
+        201 =>
+          Operation.response("Campaign created", "application/json",
+            CampaignSchemas.CampaignResponse
+          ),
+        422 =>
+          Operation.response("Validation error", "application/json",
+            CommonSchemas.ValidationErrorResponse
+          ),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def update_operation do
+    %Operation{
+      tags: ["Campaigns"],
+      summary: "Update a campaign",
+      description: "Update an existing campaign's attributes",
+      operationId: "CampaignController.update",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Campaign ID",
+          example: "223e4567-e89b-12d3-a456-426614174000"
+        )
+      ],
+      requestBody:
+        Operation.request_body("Campaign attributes", "application/json",
+          CampaignSchemas.CampaignRequest,
+          required: true
+        ),
+      responses: %{
+        200 =>
+          Operation.response("Campaign updated", "application/json",
+            CampaignSchemas.CampaignResponse
+          ),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        422 =>
+          Operation.response("Validation error", "application/json",
+            CommonSchemas.ValidationErrorResponse
+          ),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def delete_operation do
+    %Operation{
+      tags: ["Campaigns"],
+      summary: "Delete a campaign",
+      description: "Delete a campaign by ID",
+      operationId: "CampaignController.delete",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Campaign ID",
+          example: "223e4567-e89b-12d3-a456-426614174000"
+        )
+      ],
+      responses: %{
+        204 =>
+          Operation.response("No Content", "application/json", CommonSchemas.NoContentResponse),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def get_assets_operation do
+    %Operation{
+      tags: ["Campaigns"],
+      summary: "Get campaign's assets",
+      description: "Retrieve all assets for a specific campaign",
+      operationId: "CampaignController.get_assets",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Campaign ID",
+          example: "223e4567-e89b-12d3-a456-426614174000"
+        )
+      ],
+      responses: %{
+        200 => Operation.response("Assets", "application/json", AssetSchemas.AssetsResponse),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def create_job_operation do
+    %Operation{
+      tags: ["Campaigns"],
+      summary: "Create a job for a campaign",
+      description:
+        "Create a new video generation job for a campaign. This will generate scenes from campaign assets and create sub-jobs for processing.",
+      operationId: "CampaignController.create_job",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Campaign ID",
+          example: "223e4567-e89b-12d3-a456-426614174000"
+        )
+      ],
+      requestBody:
+        Operation.request_body(
+          "Job creation parameters",
+          "application/json",
+          %OpenApiSpex.Schema{
+            type: :object,
+            properties: %{
+              num_scenes: %OpenApiSpex.Schema{
+                type: :integer,
+                description: "Number of scenes to generate",
+                default: 4
+              },
+              clip_duration: %OpenApiSpex.Schema{
+                type: :integer,
+                description: "Duration of each clip in seconds",
+                default: 4
+              },
+              style: %OpenApiSpex.Schema{
+                type: :string,
+                description: "Video style",
+                default: "modern"
+              },
+              music_genre: %OpenApiSpex.Schema{
+                type: :string,
+                description: "Music genre",
+                default: "upbeat"
+              },
+              duration_seconds: %OpenApiSpex.Schema{
+                type: :integer,
+                description: "Total duration in seconds",
+                default: 30
+              }
+            }
+          }
+        ),
+      responses: %{
+        201 => Operation.response("Job created", "application/json", JobSchemas.JobResponse),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        422 =>
+          Operation.response("Validation error", "application/json",
+            CommonSchemas.ValidationErrorResponse
+          ),
+        500 =>
+          Operation.response("Internal Server Error", "application/json",
+            CommonSchemas.ErrorResponse
+          ),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
+
+  def stats_operation do
+    %Operation{
+      tags: ["Campaigns"],
+      summary: "Get campaign statistics",
+      description: "Retrieve statistics for a specific campaign",
+      operationId: "CampaignController.stats",
+      security: [%{"api_key" => []}],
+      parameters: [
+        Operation.parameter(:id, :path, :string, "Campaign ID",
+          example: "223e4567-e89b-12d3-a456-426614174000"
+        )
+      ],
+      responses: %{
+        200 =>
+          Operation.response("Campaign stats", "application/json", CampaignSchemas.CampaignStats),
+        404 => Operation.response("Not Found", "application/json", CommonSchemas.ErrorResponse),
+        401 =>
+          Operation.response("Unauthorized", "application/json", CommonSchemas.ErrorResponse)
+      }
+    }
+  end
 
   def index(conn, params) do
     query = Campaign
