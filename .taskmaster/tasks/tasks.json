@@ -1,0 +1,624 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Initialize Phoenix Project",
+        "description": "Set up a new Phoenix application in API mode with SQLite database configuration.",
+        "details": "Run `mix phx.new backend --no-html --no-assets --no-mailer --database sqlite3`. Configure the database in `config/dev.exs` and `config/prod.exs` to use SQLite with `ecto_sqlite3`. Add dependencies like `req`, `jason` to `mix.exs`. Ensure environment variables for API keys are set up.",
+        "testStrategy": "Verify the application starts without errors by running `mix phx.server` and checking if the database connection is established.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Generate New Phoenix Application",
+            "description": "Create a new Phoenix application in API mode with SQLite database using the specified command.",
+            "dependencies": [],
+            "details": "Execute the command `mix phx.new backend --no-html --no-assets --no-mailer --database sqlite3` to generate the project structure. This sets up the basic API-only Phoenix app without HTML, assets, or mailer components, and configures it for SQLite.",
+            "status": "pending",
+            "testStrategy": "Verify that the project directory is created and `mix compile` runs without errors."
+          },
+          {
+            "id": 2,
+            "title": "Configure Database for Development",
+            "description": "Set up the database configuration in config/dev.exs to use SQLite with ecto_sqlite3.",
+            "dependencies": [
+              1
+            ],
+            "details": "Edit the config/dev.exs file to configure the database adapter to Ecto.Adapters.SQLite3, set the database path, and ensure proper settings for development environment. This includes specifying the database file location and any necessary options.",
+            "status": "pending",
+            "testStrategy": "Run `mix ecto.create` in dev mode and check that the SQLite database file is created without errors."
+          },
+          {
+            "id": 3,
+            "title": "Configure Database for Production",
+            "description": "Set up the database configuration in config/prod.exs to use SQLite with ecto_sqlite3.",
+            "dependencies": [
+              1
+            ],
+            "details": "Edit the config/prod.exs file to configure the database adapter to Ecto.Adapters.SQLite3, set the database path for production, and include environment variable support for the database URL. Ensure settings are optimized for production use.",
+            "status": "pending",
+            "testStrategy": "Test the production configuration by setting environment variables and running `MIX_ENV=prod mix ecto.create` to verify database creation."
+          },
+          {
+            "id": 4,
+            "title": "Add Required Dependencies to mix.exs",
+            "description": "Include dependencies like req and jason in the mix.exs file.",
+            "dependencies": [
+              1
+            ],
+            "details": "Open mix.exs and add {:req, \"~> 0.4\"}, {:jason, \"~> 1.4\"} to the deps list. Also add {:ecto_sqlite3, \"~> 0.12\"} if not already present. Run `mix deps.get` to fetch the dependencies.",
+            "status": "pending",
+            "testStrategy": "Run `mix compile` and ensure no dependency-related errors occur, and verify that the libraries are available in the project."
+          },
+          {
+            "id": 5,
+            "title": "Set Up Environment Variables for API Keys",
+            "description": "Ensure environment variables for API keys are configured and accessible in the application.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create a .env file or use system environment variables to define API keys. Update config files to read these variables using System.get_env/1. Ensure sensitive data is not hardcoded and provide instructions for setting up the environment.",
+            "status": "pending",
+            "testStrategy": "Start the application with `mix phx.server` and check that environment variables are loaded correctly by adding a debug log or test endpoint."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Define Ecto Schemas",
+        "description": "Create Ecto schemas for users, clients, campaigns, assets, jobs, and sub_jobs tables.",
+        "details": "Use `mix phx.gen.schema` or manually define modules in `lib/backend/schemas/` for each table with fields as specified: users (id, username, email, password_hash, api_key_hash), clients (id UUID, name, brand_guidelines), campaigns (id UUID, client_id, name, brief), assets (id UUID, type enum, blob_data binary, metadata json, source_url, campaign_id), jobs (id integer, type enum, status enum, parameters json, storyboard json, progress json, result json), sub_jobs (id UUID, job_id, provider_id, status enum, video_blob binary). Use Ecto.Changeset for validations.",
+        "testStrategy": "Run `mix test` on generated schema tests to ensure fields are correctly defined and validations work.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define User Schema",
+            "description": "Create an Ecto schema module for the users table with fields: id (integer primary key), username (string), email (string), password_hash (string), api_key_hash (string). Include validations for email format and uniqueness.",
+            "dependencies": [],
+            "details": "Manually define the User module in lib/backend/schemas/user.ex using Ecto.Schema. Use Ecto.Changeset for validations such as email format and uniqueness. Ensure the schema uses the correct field types and includes timestamps if needed.",
+            "status": "pending",
+            "testStrategy": "Run unit tests to verify schema fields, validations, and changeset behavior."
+          },
+          {
+            "id": 2,
+            "title": "Define Client Schema",
+            "description": "Create an Ecto schema module for the clients table with fields: id (UUID primary key), name (string), brand_guidelines (text). Include validations for required fields.",
+            "dependencies": [],
+            "details": "Manually define the Client module in lib/backend/schemas/client.ex using Ecto.Schema. Use Ecto.Changeset for validations ensuring name is required. Use UUID for id field and text for brand_guidelines.",
+            "status": "pending",
+            "testStrategy": "Run unit tests to verify schema fields, validations, and changeset behavior."
+          },
+          {
+            "id": 3,
+            "title": "Define Campaign Schema",
+            "description": "Create an Ecto schema module for the campaigns table with fields: id (UUID primary key), client_id (belongs_to Client), name (string), brief (text). Include associations and validations.",
+            "dependencies": [],
+            "details": "Manually define the Campaign module in lib/backend/schemas/campaign.ex using Ecto.Schema. Include belongs_to association for client_id referencing Client. Use Ecto.Changeset for validations ensuring name and brief are required.",
+            "status": "pending",
+            "testStrategy": "Run unit tests to verify schema fields, associations, validations, and changeset behavior."
+          },
+          {
+            "id": 4,
+            "title": "Define Asset Schema",
+            "description": "Create an Ecto schema module for the assets table with fields: id (UUID primary key), type (enum), blob_data (binary), metadata (json), source_url (string), campaign_id (belongs_to Campaign). Include validations and enum definitions.",
+            "dependencies": [],
+            "details": "Manually define the Asset module in lib/backend/schemas/asset.ex using Ecto.Schema. Define the type enum (e.g., image, video). Include belongs_to association for campaign_id. Use Ecto.Changeset for validations ensuring required fields and valid enum values.",
+            "status": "pending",
+            "testStrategy": "Run unit tests to verify schema fields, associations, enum validations, and changeset behavior."
+          },
+          {
+            "id": 5,
+            "title": "Define Job Schema",
+            "description": "Create an Ecto schema module for the jobs table with fields: id (integer primary key), type (enum), status (enum), parameters (json), storyboard (json), progress (json), result (json). Include validations and enum definitions.",
+            "dependencies": [],
+            "details": "Manually define the Job module in lib/backend/schemas/job.ex using Ecto.Schema. Define enums for type and status. Use Ecto.Changeset for validations ensuring required fields and valid enum values. Handle json fields appropriately.",
+            "status": "pending",
+            "testStrategy": "Run unit tests to verify schema fields, enum validations, json handling, and changeset behavior."
+          },
+          {
+            "id": 6,
+            "title": "Define SubJob Schema",
+            "description": "Create an Ecto schema module for the sub_jobs table with fields: id (UUID primary key), job_id (belongs_to Job), provider_id (string or integer), status (enum), video_blob (binary). Include associations and validations.",
+            "dependencies": [],
+            "details": "Manually define the SubJob module in lib/backend/schemas/sub_job.ex using Ecto.Schema. Include belongs_to association for job_id referencing Job. Define the status enum. Use Ecto.Changeset for validations ensuring required fields and valid enum values.",
+            "status": "pending",
+            "testStrategy": "Run unit tests to verify schema fields, associations, enum validations, and changeset behavior."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Create Database Migration",
+        "description": "Implement an Ecto migration to create the SQLite tables matching the schema.",
+        "details": "Run `mix ecto.gen.migration create_tables` and in the migration file, use `create table` statements with appropriate types (e.g., :binary for blob_data). Execute raw SQL if needed to match Python schema. Configure Ecto for SQLite with journal_mode: WAL to mitigate locking issues.",
+        "testStrategy": "Run `mix ecto.migrate` and verify tables are created by querying the database directly.",
+        "priority": "high",
+        "dependencies": [
+          2
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Generate Ecto Migration File",
+            "description": "Run the mix command to generate a new Ecto migration file for creating tables.",
+            "dependencies": [],
+            "details": "Execute `mix ecto.gen.migration create_tables` in the terminal to create a new migration file in the priv/repo/migrations directory. This sets up the basic structure for the migration.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 2,
+            "title": "Implement Table Creation Statements",
+            "description": "Add create table statements in the migration file using appropriate Ecto types for each schema table.",
+            "dependencies": [
+              1
+            ],
+            "details": "In the generated migration file, use `create table` macros with fields matching the defined Ecto schemas: users, clients, campaigns, assets, jobs, and sub_jobs. Use types like :binary for blob_data, :string for text fields, and :map for JSON fields. Ensure UUIDs are handled correctly for relevant tables.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 3,
+            "title": "Add Raw SQL for Schema Matching",
+            "description": "Include raw SQL execution in the migration if needed to precisely match the Python schema.",
+            "dependencies": [
+              2
+            ],
+            "details": "If Ecto's create table statements do not fully match the Python schema, add execute statements with raw SQL queries. For example, to set specific constraints or indexes that Ecto might not handle directly. Review the Python schema and adjust accordingly.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 4,
+            "title": "Configure Ecto for SQLite WAL Mode",
+            "description": "Update Ecto configuration to enable journal_mode: WAL for SQLite to mitigate locking issues.",
+            "dependencies": [
+              3
+            ],
+            "details": "In the config/config.exs or runtime.exs, add configuration for the SQLite adapter to set journal_mode: WAL. This can be done in the Repo configuration block, e.g., config :backend, Backend.Repo, journal_mode: :wal. Ensure this is applied before running migrations.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 5,
+            "title": "Run and Verify Migration",
+            "description": "Execute the migration and verify that all tables are created correctly in the database.",
+            "dependencies": [
+              4
+            ],
+            "details": "Run `mix ecto.migrate` to apply the migration. Then, query the SQLite database directly (e.g., using sqlite3 command or a tool) to verify that all tables exist with the correct columns, types, and any additional constraints. Check for any errors during migration.",
+            "status": "pending",
+            "testStrategy": "Run `mix ecto.migrate` and inspect the database schema using a SQLite browser or CLI to confirm table structures match the expected schema."
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement Asset Upload and Retrieval Endpoints",
+        "description": "Build controllers for POST /api/v3/assets/unified and GET /api/v3/assets/:id/data.",
+        "details": "In the controller, for POST: handle Plug.Upload for files or Req.get for URLs, validate with Changeset, generate thumbnails using System.cmd(\"ffmpeg\", args) if video, insert into assets table. For GET: use send_download with correct content-type, stream blob data to avoid memory issues. Use Repo.stream for large blobs.",
+        "testStrategy": "Use Phoenix test helpers to simulate file uploads and URL downloads, assert blob storage and retrieval, check thumbnail generation for videos.",
+        "priority": "medium",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Asset Upload Endpoint",
+            "description": "Handle POST /api/v3/assets/unified for uploading assets via file or URL, including validation with Changeset, thumbnail generation for videos using FFmpeg, and insertion into the assets table, covering error cases like invalid files or failed thumbnails.",
+            "dependencies": [],
+            "details": "In the controller, use Plug.Upload for file uploads or Req.get for URL downloads. Validate inputs with Changeset. For video assets, generate thumbnails by calling System.cmd(\"ffmpeg\", args). Insert validated data into the assets table. Handle errors such as unsupported formats, network failures for URLs, or FFmpeg command failures by returning appropriate HTTP status codes and error messages.",
+            "status": "pending",
+            "testStrategy": "Use Phoenix test helpers to simulate file uploads and URL downloads, mock FFmpeg calls, assert successful insertions and thumbnail generation, and verify error responses for invalid inputs."
+          },
+          {
+            "id": 2,
+            "title": "Implement Asset Retrieval Endpoint",
+            "description": "Handle GET /api/v3/assets/:id/data for retrieving asset data, including streaming blob data with correct content-type to avoid memory issues, and managing error cases like missing assets.",
+            "dependencies": [
+              1
+            ],
+            "details": "In the controller, use send_download with the appropriate content-type based on the asset's MIME type. Stream blob data using Repo.stream to handle large files efficiently without loading into memory. Implement error handling for cases where the asset ID does not exist or retrieval fails, returning 404 or 500 status codes accordingly.",
+            "status": "pending",
+            "testStrategy": "Use Phoenix test helpers to simulate GET requests, assert correct content-type headers and streamed data, verify handling of large blobs without memory issues, and test error responses for non-existent assets."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Implement Job Creation Endpoints",
+        "description": "Create controllers for POST /api/v3/jobs/from-image-pairs and POST /api/v3/jobs/from-property-photos.",
+        "details": "For from-image-pairs: fetch campaign assets, send to xAI/Grok via Req with prompt, parse response, create job and sub_jobs entries, spawn GenServer for processing. For property-photos: similar but validate scene types. Return job ID immediately.",
+        "testStrategy": "Mock external API calls, test job and sub_job creation, verify parameters and storyboard JSON structures.",
+        "priority": "medium",
+        "dependencies": [
+          3,
+          4
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement POST /api/v3/jobs/from-image-pairs Endpoint",
+            "description": "Create the controller for the from-image-pairs endpoint, including fetching campaign assets, sending them to xAI/Grok via Req with a prompt, parsing the response, creating job and sub_jobs entries in the database, and spawning a GenServer for processing. Return the job ID immediately.",
+            "dependencies": [],
+            "details": "In the controller, validate input parameters, fetch campaign assets from the database, construct a prompt for xAI/Grok, make the API call using Req, parse the JSON response to extract scene data, insert a new job record with status 'pending', create sub_jobs based on the parsed scenes, and spawn the Workflow Coordinator GenServer to handle further processing. Ensure error handling for API failures and invalid responses.",
+            "status": "pending",
+            "testStrategy": "Mock the xAI/Grok API responses using Mox, test database insertions for jobs and sub_jobs, verify correct prompt construction and response parsing, and assert that the GenServer is spawned correctly."
+          },
+          {
+            "id": 2,
+            "title": "Implement POST /api/v3/jobs/from-property-photos Endpoint",
+            "description": "Create the controller for the from-property-photos endpoint, similar to from-image-pairs but with additional validation for scene types, including fetching campaign assets, sending to xAI/Grok via Req with prompt, parsing response, creating job and sub_jobs entries, and spawning GenServer for processing. Return job ID immediately.",
+            "dependencies": [],
+            "details": "In the controller, validate input parameters including scene types, fetch campaign assets from the database, construct a prompt for xAI/Grok, make the API call using Req, parse the JSON response to extract validated scene data, insert a new job record with status 'pending', create sub_jobs based on the parsed scenes, and spawn the Workflow Coordinator GenServer to handle further processing. Include specific validation logic for property photo scene types to ensure compatibility.",
+            "status": "pending",
+            "testStrategy": "Mock the xAI/Grok API responses using Mox, test scene type validation, verify database insertions for jobs and sub_jobs, check prompt construction and response parsing, and confirm GenServer spawning with correct parameters."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Implement Job Status Polling Endpoint",
+        "description": "Build controller for GET /api/v3/jobs/:id to return job status and progress.",
+        "details": "Query jobs table, return JSON with status, progress percentage, and current stage. Include sub_jobs status if needed.",
+        "testStrategy": "Insert test jobs, update statuses, assert correct JSON response in tests.",
+        "priority": "medium",
+        "dependencies": [
+          3,
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up the GET /api/v3/jobs/:id route and basic controller",
+            "description": "Create the Phoenix controller module and define the route for the job status polling endpoint.",
+            "dependencies": [],
+            "details": "In the router, add a GET route for /api/v3/jobs/:id pointing to a new controller action. Create the controller module with a show action that accepts the job ID parameter.",
+            "status": "pending",
+            "testStrategy": "Verify the route is accessible and the controller action is called without errors."
+          },
+          {
+            "id": 2,
+            "title": "Implement database query for job and sub_jobs",
+            "description": "Query the jobs table and associated sub_jobs to retrieve status and progress data.",
+            "dependencies": [
+              1
+            ],
+            "details": "In the controller action, use Ecto to query the job by ID, including preloading sub_jobs. Ensure the query handles cases where the job or sub_jobs do not exist.",
+            "status": "pending",
+            "testStrategy": "Insert test data into the database and assert that the query returns the correct job and sub_jobs records."
+          },
+          {
+            "id": 3,
+            "title": "Calculate progress percentage and current stage",
+            "description": "Compute the overall progress percentage based on sub_jobs completion and determine the current stage.",
+            "dependencies": [
+              2
+            ],
+            "details": "After querying, calculate progress as (completed sub_jobs / total sub_jobs) * 100. Set current stage based on job status or the latest sub_job stage. Handle edge cases like no sub_jobs.",
+            "status": "pending",
+            "testStrategy": "Create test jobs with various sub_job statuses and verify the calculated progress and stage match expected values."
+          },
+          {
+            "id": 4,
+            "title": "Format and return JSON response",
+            "description": "Structure the response JSON with status, progress percentage, current stage, and sub_jobs details.",
+            "dependencies": [
+              3
+            ],
+            "details": "Build a JSON map including job status, progress_percentage, current_stage, and a list of sub_jobs with their statuses. Use Phoenix's json/2 function to return the response.",
+            "status": "pending",
+            "testStrategy": "Mock the query results and assert the JSON response structure and values are correct."
+          },
+          {
+            "id": 5,
+            "title": "Add error handling and validation",
+            "description": "Implement error responses for invalid job IDs or unauthorized access.",
+            "dependencies": [
+              4
+            ],
+            "details": "Add checks for job existence and user permissions. Return appropriate HTTP status codes (e.g., 404 for not found, 403 for forbidden) with error messages in JSON format.",
+            "status": "pending",
+            "testStrategy": "Test with invalid IDs and unauthorized requests to ensure proper error responses are returned."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Implement Workflow Coordinator GenServer",
+        "description": "Create a singleton GenServer to manage job orchestration.",
+        "details": "Define Backend.Workflow.Coordinator as a GenServer that checks for pending jobs periodically or via PubSub. On job approval (POST /api/v3/jobs/:id/approve), update status and trigger processing. Handle recovery on startup by querying processing jobs.",
+        "testStrategy": "Unit test GenServer lifecycle, integration test with database updates and PubSub notifications.",
+        "priority": "high",
+        "dependencies": [
+          3,
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up Workflow Coordinator GenServer with Lifecycle and PubSub",
+            "description": "Define the Backend.Workflow.Coordinator module as a singleton GenServer, implementing the necessary lifecycle callbacks (init, handle_call, handle_cast, etc.) and integrate PubSub for real-time notifications on job events.",
+            "dependencies": [],
+            "details": "Implement the GenServer using GenServer.start_link with a registered name for singleton behavior. In init, initialize state with job tracking structures. Add PubSub subscriptions in init or via handle_call. Ensure proper termination handling in terminate. Use Phoenix.PubSub for subscribing to job-related topics.",
+            "status": "pending",
+            "testStrategy": "Unit tests for GenServer lifecycle callbacks, including init, handle_call, and termination; mock PubSub to verify subscriptions and message handling."
+          },
+          {
+            "id": 2,
+            "title": "Implement Job Approval Handling and Startup Recovery",
+            "description": "Add logic to handle job approval via POST /api/v3/jobs/:id/approve, update job status, and trigger processing. Include startup recovery by querying and resuming processing jobs.",
+            "dependencies": [],
+            "details": "In the GenServer, implement a handle_cast or handle_call for job approval messages, updating the job status in the database and initiating processing workflows. On startup in init, query the database for jobs with 'processing' status and resume their orchestration. Use database transactions for status updates to ensure consistency.",
+            "status": "pending",
+            "testStrategy": "Integration tests with database mocks to verify status updates on approval; unit tests for recovery logic by simulating startup queries and state restoration."
+          },
+          {
+            "id": 3,
+            "title": "Implement Job Approval REST Endpoint",
+            "description": "Create POST /api/v3/jobs/:id/approve endpoint to trigger job approval from external clients.",
+            "dependencies": [1, 2],
+            "details": "Create a controller action for POST /api/v3/jobs/:id/approve that validates the job exists, checks user permissions, and sends an approval message to the Workflow Coordinator GenServer. The endpoint should update the job status from 'pending' to 'approved' and trigger the processing workflow. Return appropriate HTTP status codes and JSON responses.",
+            "status": "pending",
+            "testStrategy": "Test the endpoint with valid and invalid job IDs, verify GenServer message passing, check database status updates, and ensure proper authorization checks."
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Implement Parallel Rendering with Replicate API",
+        "description": "Add logic for parallel execution of sub_jobs using Task.async_stream.",
+        "details": "In the Coordinator, for each job, use Task.async_stream with concurrency 10 to call Replicate API for each scene. Poll for completion with exponential backoff (recursive function with Process.sleep). Store results in sub_jobs.video_blob.",
+        "testStrategy": "Mock Replicate API responses, test parallel execution, assert blob storage and status updates.",
+        "priority": "high",
+        "dependencies": [
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Parallel Execution with Task.async_stream",
+            "description": "Set up parallel processing for sub_jobs using Task.async_stream with concurrency limit of 10 to call the Replicate API for each scene.",
+            "dependencies": [],
+            "details": "In the Coordinator module, modify the job processing logic to use Task.async_stream with a max_concurrency of 10. For each sub_job, initiate an asynchronous call to the Replicate API to start rendering the scene. Ensure proper error handling for API failures and concurrency limits.",
+            "status": "pending",
+            "testStrategy": "Mock the Replicate API to simulate parallel calls, verify that concurrency is respected, and check for correct initiation of rendering tasks."
+          },
+          {
+            "id": 2,
+            "title": "Implement Polling with Exponential Backoff",
+            "description": "Create a recursive polling mechanism to check for completion of Replicate API calls using exponential backoff.",
+            "dependencies": [
+              1
+            ],
+            "details": "Develop a recursive function that polls the Replicate API for each rendering task's status. Use Process.sleep with increasing delays (e.g., starting at 1 second, doubling each time up to a max). Handle timeouts and failures gracefully, retrying up to a limit before marking as failed.",
+            "status": "pending",
+            "testStrategy": "Use mocked API responses with varying delays and statuses, test the backoff timing, ensure retries work, and verify failure handling after max attempts."
+          },
+          {
+            "id": 3,
+            "title": "Store Rendering Results in sub_jobs.video_blob",
+            "description": "Upon completion of each rendering task, store the resulting video blob in the sub_jobs table.",
+            "dependencies": [
+              2
+            ],
+            "details": "After polling confirms completion, fetch the video blob from the Replicate API response and update the sub_jobs.video_blob field in the database. Ensure atomic updates and handle cases where the blob is empty or invalid. Update sub_job status to completed.",
+            "status": "pending",
+            "testStrategy": "Mock successful API completions, verify blob storage in the database, check status updates, and test edge cases like invalid blobs or storage failures."
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Implement Video Stitching with FFmpeg",
+        "description": "Create module for stitching sub_job videos into final video.",
+        "details": "After all sub_jobs complete, extract blobs to /tmp/job_id/, generate concat.txt, run System.cmd(\"ffmpeg\", [\"-f\", \"concat\", ...]) to stitch, save final blob to jobs.result.",
+        "testStrategy": "Use test video blobs, verify stitching output matches expected duration and content.",
+        "priority": "medium",
+        "dependencies": [
+          8
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Extract video blobs to temporary files",
+            "description": "Extract all sub_job video blobs to temporary files in /tmp/job_id/ directory after sub_jobs complete.",
+            "dependencies": [],
+            "details": "For each completed sub_job, retrieve the video_blob from the database, write it to a temporary file named after the sub_job ID in /tmp/job_id/. Ensure proper file permissions and handle large blob sizes efficiently.",
+            "status": "pending",
+            "testStrategy": "Use mock sub_job blobs, verify files are created in temp directory with correct content and naming."
+          },
+          {
+            "id": 2,
+            "title": "Generate and execute FFmpeg concat command",
+            "description": "Create a concat.txt file listing the extracted video files and run FFmpeg to stitch them into a final video.",
+            "dependencies": [
+              1
+            ],
+            "details": "Generate concat.txt with file entries like 'file /tmp/job_id/sub_job_1.mp4', then execute System.cmd with FFmpeg arguments including -f concat, input concat.txt, and output to a temporary stitched file. Handle errors and ensure FFmpeg is available.",
+            "status": "pending",
+            "testStrategy": "Mock temp files, test concat.txt generation, and verify FFmpeg command execution produces expected output video with correct duration."
+          },
+          {
+            "id": 3,
+            "title": "Store final stitched video blob to database",
+            "description": "Save the stitched video output as a blob in the jobs.result field.",
+            "dependencies": [
+              2
+            ],
+            "details": "Read the final stitched video file from temp directory, convert to blob, update the job record with the result blob, and clean up temporary files. Ensure atomic updates to prevent data loss.",
+            "status": "pending",
+            "testStrategy": "Mock stitched video file, test blob storage in database, verify job status update and temp file cleanup."
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Implement Audio Generation Workflow",
+        "description": "Build sequential audio generation for scenes using MusicGen.",
+        "details": "For /api/v3/audio/generate-scenes, use Enum.reduce_while to chain Replicate calls for continuation. Merge with video using FFmpeg afade filters.",
+        "testStrategy": "Mock sequential API calls, test audio blob generation and merging with video.",
+        "priority": "medium",
+        "dependencies": [
+          9
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Sequential Audio Generation with Replicate API",
+            "description": "Develop the logic for chaining Replicate API calls sequentially using Enum.reduce_while to generate audio continuations for each scene in the workflow.",
+            "dependencies": [],
+            "details": "In the /api/v3/audio/generate-scenes endpoint, implement Enum.reduce_while to iterate through scenes, making successive Replicate calls for MusicGen audio generation, accumulating results for seamless continuation.",
+            "status": "pending",
+            "testStrategy": "Mock sequential Replicate API responses to verify chaining logic and audio blob accumulation."
+          },
+          {
+            "id": 2,
+            "title": "Merge Audio with Video using FFmpeg Filters",
+            "description": "Integrate generated audio with video by applying FFmpeg afade filters for smooth merging in the audio generation workflow.",
+            "dependencies": [
+              1
+            ],
+            "details": "After audio generation, use FFmpeg commands with afade filters to merge the audio blobs with corresponding video segments, ensuring proper synchronization and fade effects for a cohesive output.",
+            "status": "pending",
+            "testStrategy": "Test with sample audio and video blobs, verify merged output for correct duration, synchronization, and fade application."
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Implement Scene Management API",
+        "description": "Create comprehensive CRUD endpoints for managing job scenes after generation.",
+        "details": "Implement GET /api/v3/jobs/:id/scenes to list all scenes, GET /api/v3/jobs/:id/scenes/:scene_id to get a specific scene, PUT /api/v3/jobs/:id/scenes/:scene_id to update scene parameters, POST /api/v3/jobs/:id/scenes/:scene_id/regenerate to regenerate a scene, and DELETE /api/v3/jobs/:id/scenes/:scene_id to remove a scene. Integrate with Workflow Coordinator GenServer for state updates.",
+        "testStrategy": "Test CRUD operations with valid and invalid IDs, verify GenServer state synchronization, test scene ordering and modification.",
+        "priority": "high",
+        "dependencies": [
+          3,
+          5,
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement GET /api/v3/jobs/:id/scenes Endpoint",
+            "description": "Create endpoint to list all scenes for a given job.",
+            "dependencies": [],
+            "details": "Create a SceneController with an index action that queries the job and its associated scenes from the database. Return scenes as a JSON array with scene IDs, descriptions, statuses, and any metadata. Handle cases where the job doesn't exist.",
+            "status": "pending",
+            "testStrategy": "Test with jobs containing various numbers of scenes, verify JSON response structure, test error handling for non-existent jobs."
+          },
+          {
+            "id": 2,
+            "title": "Implement GET /api/v3/jobs/:id/scenes/:scene_id Endpoint",
+            "description": "Create endpoint to retrieve a specific scene's details.",
+            "dependencies": [],
+            "details": "Add a show action to the SceneController that queries a specific scene by job ID and scene ID. Return detailed scene information including parameters, status, and any generated content. Handle 404 errors for missing scenes.",
+            "status": "pending",
+            "testStrategy": "Test with valid and invalid scene IDs, verify detailed response data, test authorization and error responses."
+          },
+          {
+            "id": 3,
+            "title": "Implement PUT /api/v3/jobs/:id/scenes/:scene_id Endpoint",
+            "description": "Create endpoint to update scene parameters or reorder scenes.",
+            "dependencies": [],
+            "details": "Add an update action that accepts scene modifications (description, parameters, order). Send a message to the Workflow Coordinator GenServer to update its internal state. Validate changes and ensure the job hasn't already been finalized.",
+            "status": "pending",
+            "testStrategy": "Test scene updates, verify GenServer message passing, test validation for locked/completed jobs, verify database updates."
+          },
+          {
+            "id": 4,
+            "title": "Implement POST /api/v3/jobs/:id/scenes/:scene_id/regenerate Endpoint",
+            "description": "Create endpoint to trigger regeneration of a specific scene.",
+            "dependencies": [],
+            "details": "Add a regenerate action that marks a scene for re-processing. Send a message to the Workflow Coordinator to queue the scene for regeneration with the Replicate API. Update scene status to 'regenerating'.",
+            "status": "pending",
+            "testStrategy": "Test regeneration triggering, verify status updates, mock Replicate API calls, test queuing behavior."
+          },
+          {
+            "id": 5,
+            "title": "Implement DELETE /api/v3/jobs/:id/scenes/:scene_id Endpoint",
+            "description": "Create endpoint to remove a scene from a job.",
+            "dependencies": [],
+            "details": "Add a delete action that removes a scene from the job. Send a message to the Workflow Coordinator to update its state. Ensure proper cleanup of any associated sub_jobs and temporary files. Recalculate job progress after deletion.",
+            "status": "pending",
+            "testStrategy": "Test scene deletion, verify cascading deletes for sub_jobs, test progress recalculation, verify GenServer state updates."
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Implement Video Serving Endpoints",
+        "description": "Create endpoints to serve generated video files to clients.",
+        "details": "Implement GET /api/v3/videos/:job_id/combined to serve the final stitched video, GET /api/v3/videos/:job_id/clips/:filename to serve individual scene clips. Use Plug.Conn.send_file for efficient streaming, handle range requests for video scrubbing, set proper content-type headers, and implement caching headers.",
+        "testStrategy": "Test video streaming with large files, verify range request handling, test content-type detection, verify error handling for missing videos.",
+        "priority": "high",
+        "dependencies": [
+          3,
+          9
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement GET /api/v3/videos/:job_id/combined Endpoint",
+            "description": "Create endpoint to serve the final stitched video file.",
+            "dependencies": [],
+            "details": "Create a VideoController with a combined action that retrieves the job's result blob from the database. Use Plug.Conn.send_file to stream the video efficiently. Set appropriate content-type (video/mp4) and content-disposition headers. Handle range requests for video player scrubbing support.",
+            "status": "pending",
+            "testStrategy": "Test streaming large video files, verify range request support, test with various video players, check error handling for jobs without videos."
+          },
+          {
+            "id": 2,
+            "title": "Implement GET /api/v3/videos/:job_id/clips/:filename Endpoint",
+            "description": "Create endpoint to serve individual scene video clips.",
+            "dependencies": [],
+            "details": "Add a clips action to the VideoController that serves individual sub_job video blobs. Parse the filename parameter to identify the specific clip. Stream the video using send_file with proper headers. Implement URL-safe filename generation for clips.",
+            "status": "pending",
+            "testStrategy": "Test serving multiple clips, verify filename parsing and validation, test streaming performance, check authorization."
+          },
+          {
+            "id": 3,
+            "title": "Add Video Thumbnail Endpoints",
+            "description": "Create endpoints to serve video thumbnails for preview purposes.",
+            "dependencies": [1, 2],
+            "details": "Implement GET /api/v3/videos/:job_id/thumbnail and GET /api/v3/videos/:job_id/clips/:filename/thumbnail endpoints. Serve pre-generated thumbnails from the assets table or generate on-demand using FFmpeg. Cache thumbnails for performance.",
+            "status": "pending",
+            "testStrategy": "Test thumbnail generation and serving, verify caching behavior, test fallback for missing thumbnails."
+          },
+          {
+            "id": 4,
+            "title": "Implement Caching and Performance Optimization",
+            "description": "Add caching headers and optimize video serving performance.",
+            "dependencies": [1, 2],
+            "details": "Implement ETag generation based on video content hash. Add Cache-Control headers for client-side caching. Consider implementing a CDN integration point. Add compression for metadata endpoints but not for video streams.",
+            "status": "pending",
+            "testStrategy": "Test caching header generation, verify ETag functionality, measure performance improvements, test CDN integration if applicable."
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-11-23T05:21:52.881Z",
+      "updated": "2025-11-22T16:30:00.000Z",
+      "description": "Tasks for master context - Updated to include Scene Management API, Video Serving Endpoints, and Job Approval REST endpoint for full API parity with Python backend"
+    }
+  }
+}
