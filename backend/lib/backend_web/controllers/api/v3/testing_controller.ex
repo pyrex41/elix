@@ -21,6 +21,22 @@ defmodule BackendWeb.Api.V3.TestingController do
   alias Backend.Repo
   import Ecto.Query
 
+  # Helper to safely convert string keys to atom keys for known options
+  defp atomize_keys(map, allowed_keys) when is_map(map) and is_list(allowed_keys) do
+    Enum.reduce(allowed_keys, %{}, fn key, acc ->
+      atom_key = if is_binary(key), do: String.to_existing_atom(key), else: key
+      string_key = to_string(key)
+
+      cond do
+        Map.has_key?(map, atom_key) -> Map.put(acc, atom_key, Map.get(map, atom_key))
+        Map.has_key?(map, string_key) -> Map.put(acc, atom_key, Map.get(map, string_key))
+        true -> acc
+      end
+    end)
+  rescue
+    ArgumentError -> %{}
+  end
+
   @doc """
   GET /api/v3/testing/scene-templates
   Returns all scene templates with their configurations.
@@ -460,7 +476,9 @@ defmodule BackendWeb.Api.V3.TestingController do
     }
   """
   def test_text_overlay(conn, %{"job_id" => job_id, "text" => text} = params) do
-    options = Map.get(params, "options", %{})
+    raw_options = Map.get(params, "options", %{})
+    overlay_keys = [:font, :font_size, :color, :position, :fade_in, :fade_out, :start_time, :duration]
+    options = atomize_keys(raw_options, overlay_keys)
 
     case Repo.get(Job, job_id) do
       nil ->
@@ -498,7 +516,9 @@ defmodule BackendWeb.Api.V3.TestingController do
   Previews text overlay settings without processing video.
   """
   def preview_text_overlay(conn, %{"text" => text} = params) do
-    options = Map.get(params, "options", %{})
+    raw_options = Map.get(params, "options", %{})
+    overlay_keys = [:font, :font_size, :color, :position, :fade_in, :fade_out, :start_time, :duration]
+    options = atomize_keys(raw_options, overlay_keys)
     preview = OverlayService.preview_text_overlay(text, options)
 
     json(conn, %{
@@ -522,7 +542,9 @@ defmodule BackendWeb.Api.V3.TestingController do
     }
   """
   def test_voiceover_generation(conn, %{"script" => script} = params) do
-    options = Map.get(params, "options", %{})
+    raw_options = Map.get(params, "options", %{})
+    voiceover_keys = [:provider, :voice, :stability, :similarity_boost, :speed, :model]
+    options = atomize_keys(raw_options, voiceover_keys)
 
     case TtsService.generate_voiceover(script, options) do
       {:ok, audio_blob} ->
@@ -561,9 +583,15 @@ defmodule BackendWeb.Api.V3.TestingController do
     }
   """
   def generate_voiceover_script(conn, params) do
-    property_details = Map.get(params, "property_details", %{})
+    raw_property_details = Map.get(params, "property_details", %{})
+    property_keys = [:name, :type, :features, :location]
+    property_details = atomize_keys(raw_property_details, property_keys)
+
     scenes = Map.get(params, "scenes", [])
-    options = Map.get(params, "options", %{})
+
+    raw_options = Map.get(params, "options", %{})
+    script_keys = [:tone, :style, :length]
+    options = atomize_keys(raw_options, script_keys)
 
     case TtsService.generate_script(property_details, scenes, options) do
       {:ok, script_data} ->
