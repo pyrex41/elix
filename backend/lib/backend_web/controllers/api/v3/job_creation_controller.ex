@@ -30,12 +30,14 @@ defmodule BackendWeb.Api.V3.JobCreationController do
     - 500: Server error (AI generation failed, etc.)
   """
   def from_image_pairs(conn, params) do
+    params = normalize_job_params(params)
     Logger.info("[JobCreationController] Creating job from image pairs")
 
     with {:ok, campaign_id} <- validate_campaign_id(params),
          {:ok, campaign} <- fetch_campaign(campaign_id),
-         {:ok, assets} <- fetch_campaign_assets(campaign_id),
+         {:ok, assets} <- fetch_campaign_assets(campaign_id, type: :image),
          :ok <- validate_assets_exist(assets),
+         :ok <- ensure_min_assets(assets, 2),
          {:ok, scenes} <- generate_scenes(assets, campaign, :image_pairs, %{}),
          {:ok, job} <- create_job(:image_pairs, scenes, params),
          {:ok, _sub_jobs} <- create_sub_jobs(job, scenes),
@@ -45,11 +47,21 @@ defmodule BackendWeb.Api.V3.JobCreationController do
       conn
       |> put_status(:created)
       |> json(%{
-        job_id: job.id,
-        status: job.status,
-        type: job.type,
-        scene_count: length(scenes),
-        message: "Job created successfully"
+        data: %{
+          jobId: job.id,
+          status: Atom.to_string(job.status),
+          type: Atom.to_string(job.type),
+          campaignId: campaign_id,
+          clientId: params["client_id"],
+          clipDuration: params["clip_duration"],
+          numPairs: params["num_pairs"],
+          totalAssets: length(assets),
+          sceneCount: length(scenes)
+        },
+        meta: %{
+          message:
+            "Job created successfully. Pipeline is processing #{length(assets)} assets from campaign #{campaign_id}."
+        }
       })
     else
       {:error, :missing_campaign_id} ->
@@ -66,6 +78,13 @@ defmodule BackendWeb.Api.V3.JobCreationController do
         conn
         |> put_status(:bad_request)
         |> json(%{error: "Campaign has no assets"})
+
+      {:error, {:not_enough_assets, required, actual}} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{
+          error: "Need at least #{required} image assets to start the pipeline, found #{actual}"
+        })
 
       {:error, :scene_generation_failed, reason} ->
         Logger.error("[JobCreationController] Scene generation failed: #{inspect(reason)}")
@@ -209,14 +228,23 @@ defmodule BackendWeb.Api.V3.JobCreationController do
     end
   end
 
-  defp fetch_campaign_assets(campaign_id) do
+  defp fetch_campaign_assets(campaign_id, opts \\ []) do
+    type_filter = Keyword.get(opts, :type)
+
     assets =
       Asset
       |> where([a], a.campaign_id == ^campaign_id)
+      |> maybe_filter_asset_type(type_filter)
       |> order_by([a], asc: a.inserted_at)
       |> Repo.all()
 
     {:ok, assets}
+  end
+
+  defp maybe_filter_asset_type(query, nil), do: query
+
+  defp maybe_filter_asset_type(query, type) when type in [:image, :video, :audio] do
+    where(query, [a], a.type == ^type)
   end
 
   defp validate_assets_exist([]) do
@@ -284,13 +312,20 @@ defmodule BackendWeb.Api.V3.JobCreationController do
     end)
   end
 
-  defp build_job_parameters(params, nil) do
-    Map.get(params, "parameters", %{})
-  end
-
   defp build_job_parameters(params, property_types) do
     base_params = Map.get(params, "parameters", %{})
-    Map.put(base_params, "property_types", property_types)
+
+    enriched =
+      base_params
+      |> put_if_present("campaign_id", params["campaign_id"])
+      |> put_if_present("client_id", params["client_id"])
+      |> put_if_present("clip_duration", params["clip_duration"])
+      |> put_if_present("num_pairs", params["num_pairs"])
+
+    case property_types do
+      nil -> enriched
+      types -> Map.put(enriched, "property_types", types)
+    end
   end
 
   defp create_sub_jobs(job, scenes) do
@@ -319,6 +354,63 @@ defmodule BackendWeb.Api.V3.JobCreationController do
 
     :ok
   end
+
+  defp normalize_job_params(%{} = params) do
+    params =
+      params
+      |> Enum.map(fn {key, value} -> {normalize_key(key), value} end)
+      |> Enum.into(%{})
+
+    clip_duration = params["clip_duration"] || params["clipDuration"] || 5.0
+    num_pairs = params["num_pairs"] || params["numPairs"] || 10
+
+    params
+    |> Map.put_new("campaign_id", params["campaign_id"] || params["campaignId"])
+    |> Map.put_new("client_id", params["client_id"] || params["clientId"])
+    |> Map.put("clip_duration", parse_float_param(clip_duration, 5.0))
+    |> Map.put("num_pairs", parse_integer_param(num_pairs, 10))
+  end
+
+  defp normalize_job_params(params), do: params
+
+  defp normalize_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp normalize_key(key), do: key
+
+  defp parse_float_param(value, _default) when is_float(value), do: value
+  defp parse_float_param(value, _default) when is_integer(value), do: value * 1.0
+
+  defp parse_float_param(value, default) when is_binary(value) do
+    case Float.parse(value) do
+      {float_val, _} -> float_val
+      :error -> default
+    end
+  end
+
+  defp parse_float_param(_, default), do: default
+
+  defp parse_integer_param(value, _default) when is_integer(value), do: value
+
+  defp parse_integer_param(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      :error -> default
+    end
+  end
+
+  defp parse_integer_param(_, default), do: default
+
+  defp ensure_min_assets(assets, required) do
+    actual = length(assets)
+
+    if actual >= required do
+      :ok
+    else
+      {:error, {:not_enough_assets, required, actual}}
+    end
+  end
+
+  defp put_if_present(map, _key, nil), do: map
+  defp put_if_present(map, key, value), do: Map.put(map, key, value)
 
   defp format_changeset_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
