@@ -347,11 +347,12 @@ defmodule Backend.Templates.SceneTemplates do
       duration = (scene.default_duration / total_min_duration) * target_duration
 
       # Calculate start/end times
-      start_time =
+      accumulated_duration =
         scenes
         |> Enum.take(idx)
-        |> Enum.sum(& &1.default_duration)
-        |> Kernel.*(target_duration / total_min_duration)
+        |> Enum.reduce(0, fn scene_slice, acc -> acc + scene_slice.default_duration end)
+
+      start_time = accumulated_duration * (target_duration / total_min_duration)
 
       end_time = start_time + duration
 

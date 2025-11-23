@@ -3,8 +3,7 @@ defmodule Backend.Services.MusicgenService do
   Service module for interacting with Replicate's MusicGen API.
   Handles audio generation for video scenes with continuation support.
   """
-  require Logger
-  alias Backend.Templates.SceneTemplates
+require Logger
 
   @replicate_api_url "https://api.replicate.com/v1/predictions"
   @musicgen_model "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb"

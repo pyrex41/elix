@@ -74,7 +74,7 @@ defmodule BackendWeb.Router do
 
       # Testing endpoints (can be disabled via config)
       if Application.compile_env(:backend, :enable_testing_endpoints, true) do
-        scope "/testing", Testing do
+        scope "/testing" do
           # Scene template endpoints
           get "/scene-templates", TestingController, :scene_templates
           post "/scene-templates/adapt", TestingController, :adapt_scene_templates

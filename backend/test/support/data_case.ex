@@ -36,8 +36,26 @@ defmodule Backend.DataCase do
   Sets up the sandbox based on the test tags.
   """
   def setup_sandbox(tags) do
-    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Backend.Repo, shared: not tags[:async])
-    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+    owner = Ecto.Adapters.SQL.Sandbox.start_owner!(Backend.Repo, shared: not tags[:async])
+    Process.put(:sandbox_owner, owner)
+
+    on_exit(fn ->
+      Ecto.Adapters.SQL.Sandbox.stop_owner(owner)
+      Process.delete(:sandbox_owner)
+    end)
+  end
+
+  @doc """
+  Allows a background process (e.g., Workflow Coordinator) to use the shared sandbox connection.
+  """
+  def allow_repo_access(pid) when is_pid(pid) do
+    case Process.get(:sandbox_owner) do
+      nil ->
+        :ok
+
+      owner ->
+        Ecto.Adapters.SQL.Sandbox.allow(Backend.Repo, owner, pid)
+    end
   end
 
   @doc """

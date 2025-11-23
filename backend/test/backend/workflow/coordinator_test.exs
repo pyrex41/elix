@@ -6,10 +6,13 @@ defmodule Backend.Workflow.CoordinatorTest do
 
   setup do
     # Start the Coordinator if not already running
-    case GenServer.whereis(Coordinator) do
-      nil -> start_supervised!(Coordinator)
-      _pid -> :ok
-    end
+    coordinator_pid =
+      case GenServer.whereis(Coordinator) do
+        nil -> start_supervised!(Coordinator)
+        pid -> pid
+      end
+
+    Backend.DataCase.allow_repo_access(coordinator_pid)
 
     :ok
   end

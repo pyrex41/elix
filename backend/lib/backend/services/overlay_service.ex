@@ -173,8 +173,11 @@ defmodule Backend.Services.OverlayService do
     # Escape text for FFmpeg
     escaped_text = escape_text(text)
 
+    font_file = resolve_font_path(font)
+
     # Build drawtext filter
-    base_filter = "drawtext=text='#{escaped_text}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=#{font_size}:fontcolor=#{color}:#{position}"
+    base_filter =
+      "drawtext=text='#{escaped_text}':fontfile=#{font_file}:fontsize=#{font_size}:fontcolor=#{color}:#{position}"
 
     # Add timing
     timing_filter = "#{base_filter}:enable='between(t,#{start_time},#{start_time + duration})'"
@@ -245,6 +248,19 @@ defmodule Backend.Services.OverlayService do
   end
 
   defp resolve_position(_), do: "x=(w-text_w)/2:y=h-text_h-50"
+
+  defp resolve_font_path(font) when is_binary(font) do
+    font_lower = String.downcase(font)
+
+    case font_lower do
+      "arial" -> "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+      "arial_bold" -> "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+      "opensans" -> "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+      _ -> "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    end
+  end
+
+  defp resolve_font_path(_), do: "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
   defp escape_text(text) do
     text

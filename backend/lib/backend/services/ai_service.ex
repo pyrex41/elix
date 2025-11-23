@@ -485,7 +485,7 @@ defmodule Backend.Services.AiService do
       scenes =
         selected_groups
         |> Enum.with_index(1)
-        |> Enum.flat_map(fn {group_name, index} ->
+        |> Enum.flat_map(fn {group_name, _index} ->
           case Map.get(grouped_assets, group_name) do
             nil ->
               Logger.warning("[AiService] Group '#{group_name}' not found in assets")

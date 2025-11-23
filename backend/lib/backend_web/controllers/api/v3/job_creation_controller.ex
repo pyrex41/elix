@@ -46,23 +46,15 @@ defmodule BackendWeb.Api.V3.JobCreationController do
 
       conn
       |> put_status(:created)
-      |> json(%{
-        data: %{
-          jobId: job.id,
-          status: Atom.to_string(job.status),
-          type: Atom.to_string(job.type),
-          campaignId: campaign_id,
-          clientId: params["client_id"],
-          clipDuration: params["clip_duration"],
-          numPairs: params["num_pairs"],
-          totalAssets: length(assets),
-          sceneCount: length(scenes)
-        },
-        meta: %{
-          message:
-            "Job created successfully. Pipeline is processing #{length(assets)} assets from campaign #{campaign_id}."
-        }
-      })
+      |> json(
+        build_job_response(job, scenes, %{
+          "campaign_id" => campaign_id,
+          "client_id" => params["client_id"],
+          "clip_duration" => params["clip_duration"],
+          "num_pairs" => params["num_pairs"],
+          "total_assets" => length(assets)
+        })
+      )
     else
       {:error, :missing_campaign_id} ->
         conn
@@ -146,14 +138,11 @@ defmodule BackendWeb.Api.V3.JobCreationController do
 
       conn
       |> put_status(:created)
-      |> json(%{
-        job_id: job.id,
-        status: job.status,
-        type: job.type,
-        scene_count: length(scenes),
-        property_types: property_types,
-        message: "Job created successfully"
-      })
+      |> json(
+        build_job_response(job, scenes, %{
+          "property_types" => property_types
+        })
+      )
     else
       {:error, :missing_campaign_id} ->
         conn
@@ -418,5 +407,17 @@ defmodule BackendWeb.Api.V3.JobCreationController do
         opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
       end)
     end)
+  end
+
+  defp build_job_response(job, scenes, extra_fields) do
+    base = %{
+      "job_id" => job.id,
+      "status" => Atom.to_string(job.status),
+      "type" => Atom.to_string(job.type),
+      "scene_count" => length(scenes),
+      "message" => "Job created successfully"
+    }
+
+    Map.merge(base, extra_fields |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Enum.into(%{}))
   end
 end

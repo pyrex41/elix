@@ -11,7 +11,6 @@ defmodule Backend.Services.TtsService do
   Also includes script generation using LLM based on property details.
   """
   require Logger
-  alias Backend.Services.AiService
 
   @doc """
   Generates voiceover audio from text script.
@@ -173,7 +172,7 @@ defmodule Backend.Services.TtsService do
         generate_mock_audio(script)
 
       api_key ->
-        voice = Map.get(options, :voice, "alloy")
+        voice = Map.get(options, :voice, get_default_voice(:openai))
         speed = Map.get(options, :speed, 1.0)
 
         url = "https://api.openai.com/v1/audio/speech"
@@ -343,7 +342,7 @@ defmodule Backend.Services.TtsService do
     end
   end
 
-  defp parse_script_response(response_body, scenes) do
+  defp parse_script_response(response_body, _scenes) do
     try do
       content =
         response_body

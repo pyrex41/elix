@@ -36,28 +36,44 @@ defmodule Backend.Workflow.Coordinator do
   Approves a job and triggers processing.
   """
   def approve_job(job_id) do
-    GenServer.cast(__MODULE__, {:approve_job, job_id})
+    if workflow_processing_enabled?() do
+      GenServer.cast(__MODULE__, {:approve_job, job_id})
+    else
+      approve_job_direct(job_id)
+    end
   end
 
   @doc """
   Updates job progress.
   """
   def update_progress(job_id, progress_data) do
-    GenServer.cast(__MODULE__, {:update_progress, job_id, progress_data})
+    if workflow_processing_enabled?() do
+      GenServer.cast(__MODULE__, {:update_progress, job_id, progress_data})
+    else
+      update_progress_direct(job_id, progress_data)
+    end
   end
 
   @doc """
   Marks a job as completed.
   """
   def complete_job(job_id, result) do
-    GenServer.cast(__MODULE__, {:complete_job, job_id, result})
+    if workflow_processing_enabled?() do
+      GenServer.cast(__MODULE__, {:complete_job, job_id, result})
+    else
+      complete_job_direct(job_id, result)
+    end
   end
 
   @doc """
   Marks a job as failed.
   """
   def fail_job(job_id, reason) do
-    GenServer.cast(__MODULE__, {:fail_job, job_id, reason})
+    if workflow_processing_enabled?() do
+      GenServer.cast(__MODULE__, {:fail_job, job_id, reason})
+    else
+      fail_job_direct(job_id, reason)
+    end
   end
 
   @doc """
@@ -95,10 +111,16 @@ defmodule Backend.Workflow.Coordinator do
   def init(_opts) do
     Logger.info("[Workflow.Coordinator] Starting Workflow Coordinator")
 
-    # Subscribe to PubSub topics
-    Phoenix.PubSub.subscribe(@pubsub_name, @topics.created)
-    Phoenix.PubSub.subscribe(@pubsub_name, @topics.approved)
-    Phoenix.PubSub.subscribe(@pubsub_name, @topics.completed)
+    processing_enabled? = workflow_processing_enabled?()
+
+    if processing_enabled? do
+      # Subscribe to PubSub topics
+      Phoenix.PubSub.subscribe(@pubsub_name, @topics.created)
+      Phoenix.PubSub.subscribe(@pubsub_name, @topics.approved)
+      Phoenix.PubSub.subscribe(@pubsub_name, @topics.completed)
+    else
+      Logger.info("[Workflow.Coordinator] Running in no-op mode (processing disabled)")
+    end
 
     # Initialize state with job tracking
     state = %{
@@ -107,7 +129,7 @@ defmodule Backend.Workflow.Coordinator do
     }
 
     # Perform startup recovery
-    send(self(), :recover_interrupted_jobs)
+    if processing_enabled?, do: send(self(), :recover_interrupted_jobs)
 
     {:ok, state}
   end
@@ -534,13 +556,26 @@ defmodule Backend.Workflow.Coordinator do
         progress: %{percentage: 5, stage: "initializing"}
       })
 
-    case Repo.update(changeset) do
-      {:ok, _updated_job} ->
-        worker_pid = start_processing_task(job)
+    processing_enabled? = workflow_processing_enabled?()
 
-        state
-        |> Map.update!(:active_jobs, &Map.put(&1, job.id, job))
-        |> Map.update!(:processing_tasks, &Map.put(&1, job.id, worker_pid))
+    case Repo.update(changeset) do
+      {:ok, updated_job} ->
+        if processing_enabled? do
+          worker_pid = start_processing_task(updated_job)
+
+          state
+          |> Map.update!(:active_jobs, &Map.put(&1, job.id, updated_job))
+          |> Map.update!(:processing_tasks, &Map.put(&1, job.id, worker_pid))
+        else
+          Logger.info(
+            "[Workflow.Coordinator] Processing disabled via config, skipping job #{job.id}"
+          )
+
+          update_progress(job.id, %{stage: "processing_disabled", percentage: 10})
+
+          state
+          |> Map.update!(:active_jobs, &Map.put(&1, job.id, updated_job))
+        end
 
       {:error, changeset} ->
         Logger.error(
@@ -710,6 +745,90 @@ defmodule Backend.Workflow.Coordinator do
       e ->
         Logger.error("[Workflow.Coordinator] Error checking sub_jobs: #{inspect(e)}")
         {:error, :check_failed}
+    end
+  end
+
+  defp workflow_processing_enabled? do
+    Application.get_env(:backend, :workflow_processing_enabled, true)
+  end
+
+  defp approve_job_direct(job_id) do
+    case Repo.get(Job, job_id) do
+      nil ->
+        :ok
+
+      job ->
+        case job
+             |> Job.changeset(%{
+               status: :processing,
+               progress: %{percentage: 10, stage: "processing_disabled"}
+             })
+             |> Repo.update() do
+          {:ok, _} ->
+            Phoenix.PubSub.broadcast(@pubsub_name, @topics.approved, {:job_approved, job_id})
+            :ok
+
+          _ ->
+            :ok
+        end
+    end
+  end
+
+  defp update_progress_direct(job_id, progress_data) do
+    case Repo.get(Job, job_id) do
+      nil ->
+        :ok
+
+      job ->
+        job
+        |> Job.changeset(%{progress: progress_data})
+        |> Repo.update()
+
+        :ok
+    end
+  end
+
+  defp complete_job_direct(job_id, result) do
+    case Repo.get(Job, job_id) do
+      nil ->
+        :ok
+
+      job ->
+        case job
+             |> Job.changeset(%{
+               status: :completed,
+               result: result,
+               progress: %{percentage: 100, stage: "completed"}
+             })
+             |> Repo.update() do
+          {:ok, _} ->
+            Phoenix.PubSub.broadcast(@pubsub_name, @topics.completed, {:job_completed, job_id})
+            :ok
+
+          _ ->
+            :ok
+        end
+    end
+  end
+
+  defp fail_job_direct(job_id, reason) do
+    case Repo.get(Job, job_id) do
+      nil ->
+        :ok
+
+      job ->
+        job
+        |> Job.changeset(%{
+          status: :failed,
+          progress: %{
+            percentage: 0,
+            stage: "failed",
+            error: to_string(reason)
+          }
+        })
+        |> Repo.update()
+
+        :ok
     end
   end
 end
