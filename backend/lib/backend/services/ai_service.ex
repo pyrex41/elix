@@ -4,6 +4,7 @@ defmodule Backend.Services.AiService do
   Handles scene generation from campaign assets.
   """
   require Logger
+  alias Backend.Templates.SceneTemplates
 
   @doc """
   Generates scene descriptions from campaign assets using xAI/Grok API.
@@ -35,6 +36,37 @@ defmodule Backend.Services.AiService do
           _ ->
             call_xai_api(assets, campaign_brief, job_type, options, api_key)
         end
+    end
+  end
+
+  @doc """
+  Selects optimal image pairs for each scene type using LMM analysis.
+
+  ## Parameters
+    - assets: List of asset structs with metadata
+    - campaign_brief: String describing the campaign
+    - scene_count: Number of scenes to generate (defaults to 7)
+    - options: Additional options (property_type, style preferences, etc.)
+
+  ## Returns
+    - {:ok, scenes} where each scene includes selected asset_ids for first/last frame
+    - {:error, reason} on failure
+  """
+  def select_image_pairs_for_scenes(assets, campaign_brief, scene_count \\ 7, options \\ %{}) do
+    case get_api_key() do
+      nil ->
+        Logger.info("[AiService] No xAI API key configured, using simple selection")
+        simple_image_pair_selection(assets, scene_count)
+
+      api_key ->
+        Logger.info("[AiService] Using LMM for intelligent image pair selection")
+
+        # Get scene templates for the requested count
+        available_types = extract_scene_types_from_assets(assets)
+        templates = SceneTemplates.adapt_to_scene_count(scene_count, available_types)
+
+        # Call LMM to select best pairs for each scene
+        call_xai_for_image_pair_selection(assets, campaign_brief, templates, options, api_key)
     end
   end
 
@@ -491,5 +523,248 @@ defmodule Backend.Services.AiService do
         Logger.error("[AiService] Failed to parse group selection response: #{inspect(e)}")
         {:error, "Failed to parse AI response"}
     end
+  end
+
+  # Image pair selection helpers
+
+  defp extract_scene_types_from_assets(assets) do
+    assets
+    |> Enum.flat_map(fn asset ->
+      case asset.metadata do
+        %{"scene_type" => type} when is_binary(type) -> [type]
+        %{"tags" => tags} when is_list(tags) -> tags
+        _ -> []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  defp call_xai_for_image_pair_selection(assets, campaign_brief, templates, options, api_key) do
+    # Build detailed prompt for image selection
+    prompt = build_image_pair_selection_prompt(assets, campaign_brief, templates, options)
+
+    url = "https://api.x.ai/v1/chat/completions"
+
+    headers = [
+      {"Authorization", "Bearer #{api_key}"},
+      {"Content-Type", "application/json"}
+    ]
+
+    body = %{
+      "messages" => [
+        %{
+          "role" => "system",
+          "content" => get_image_pair_selection_system_prompt()
+        },
+        %{
+          "role" => "user",
+          "content" => prompt
+        }
+      ],
+      "model" => "grok-4-1-fast-non-reasoning",
+      "stream" => false,
+      "temperature" => 0.7
+    }
+
+    case Req.post(url, json: body, headers: headers, receive_timeout: 60_000) do
+      {:ok, %{status: 200, body: response_body}} ->
+        parse_image_pair_selection_response(response_body, templates, assets)
+
+      {:ok, %{status: status, body: body}} ->
+        Logger.error("[AiService] xAI API returned status #{status}: #{inspect(body)}")
+        {:error, "API request failed with status #{status}"}
+
+      {:error, exception} ->
+        Logger.error("[AiService] xAI API request failed: #{inspect(exception)}")
+        {:error, Exception.message(exception)}
+    end
+  end
+
+  defp get_image_pair_selection_system_prompt do
+    """
+    You are an expert luxury real estate video production assistant specializing in selecting
+    the perfect image pairs for cinematic property showcase videos.
+
+    Your task: Analyze property photos with their metadata and select the best FIRST and LAST
+    image for each scene type to create smooth, cinematic transitions.
+
+    For each scene type, you must select:
+    1. FIRST image: The starting frame for the video transition
+    2. LAST image: The ending frame for the video transition
+
+    Selection criteria:
+    - Images must match the scene type (e.g., bedroom photos for bedroom scene)
+    - FIRST and LAST images should have complementary composition for smooth camera movement
+    - Consider lighting, angle, and visual continuity
+    - Prioritize high-quality, well-lit images
+    - Ensure variety across all scenes (don't reuse same images)
+
+    Return ONLY a JSON array with this structure:
+    [
+      {
+        "scene_type": "hook",
+        "first_image_id": "uuid-of-first-image",
+        "last_image_id": "uuid-of-last-image",
+        "reasoning": "Brief explanation of why these images work well together"
+      }
+    ]
+    """
+  end
+
+  defp build_image_pair_selection_prompt(assets, campaign_brief, templates, _options) do
+    # Build asset catalog with metadata
+    asset_catalog =
+      assets
+      |> Enum.map(fn asset ->
+        metadata_str =
+          case asset.metadata do
+            %{} = meta ->
+              meta
+              |> Enum.map(fn {k, v} -> "#{k}: #{inspect(v)}" end)
+              |> Enum.join(", ")
+
+            _ ->
+              "No metadata"
+          end
+
+        """
+        - ID: #{asset.id}
+          Type: #{asset.type}
+          Metadata: {#{metadata_str}}
+        """
+      end)
+      |> Enum.join("\n")
+
+    # Build scene type requirements
+    scene_requirements =
+      templates
+      |> Enum.map(fn template ->
+        criteria = template.asset_criteria
+
+        """
+        Scene #{template.order}: #{template.title} (#{template.subtitle})
+        - Type: #{template.type}
+        - Duration: #{template.default_duration}s
+        - Camera Movement: #{template.camera_movement}
+        - Looking for: #{Enum.join(criteria.keywords, ", ")}
+        - Scene types: #{Enum.join(criteria.scene_types, ", ")}
+        """
+      end)
+      |> Enum.join("\n\n")
+
+    """
+    Campaign Brief: #{campaign_brief}
+
+    AVAILABLE IMAGES (#{length(assets)} total):
+    #{asset_catalog}
+
+    SCENE REQUIREMENTS (#{length(templates)} scenes):
+    #{scene_requirements}
+
+    Please analyze all available images and select the best FIRST and LAST image for each scene type.
+    Each image should only be used once across all scenes.
+    Ensure smooth visual flow and narrative progression throughout the video.
+    """
+  end
+
+  defp parse_image_pair_selection_response(response_body, templates, _assets) do
+    try do
+      # Extract the content from the AI response
+      content =
+        response_body
+        |> Map.get("choices", [])
+        |> List.first()
+        |> Map.get("message", %{})
+        |> Map.get("content", "")
+
+      Logger.info("[AiService] Image pair selection response received")
+
+      # Extract JSON array from response
+      selections =
+        case Regex.run(~r/\[[\s\S]*?\]/, content) do
+          [json_str] ->
+            case Jason.decode(json_str) do
+              {:ok, sels} when is_list(sels) -> sels
+              _ -> []
+            end
+
+          _ ->
+            []
+        end
+
+      Logger.info("[AiService] Parsed #{length(selections)} scene selections")
+
+      # Build scenes from selections and templates
+      scenes =
+        Enum.zip(templates, selections)
+        |> Enum.map(fn {template, selection} ->
+          video_prompt = template.video_prompt |> String.trim()
+
+          %{
+            "title" => template.title,
+            "description" => video_prompt,
+            "prompt" => video_prompt,
+            "duration" => template.default_duration,
+            "time_start" => template.time_start,
+            "time_end" => template.time_end,
+            "transition" => "fade",
+            "scene_type" => to_string(template.type),
+            "camera_movement" => to_string(template.camera_movement),
+            "motion_goal" => template.motion_goal,
+            "asset_ids" => [
+              Map.get(selection, "first_image_id"),
+              Map.get(selection, "last_image_id")
+            ],
+            "music_description" => template.music_description,
+            "music_style" => template.music_style,
+            "music_energy" => template.music_energy,
+            "selection_reasoning" => Map.get(selection, "reasoning", "")
+          }
+        end)
+
+      {:ok, scenes}
+    rescue
+      e ->
+        Logger.error("[AiService] Failed to parse image pair selection response: #{inspect(e)}")
+        {:error, "Failed to parse AI response"}
+    end
+  end
+
+  defp simple_image_pair_selection(assets, scene_count) do
+    # Fallback: Simple selection when no API key is available
+    templates = SceneTemplates.adapt_to_scene_count(scene_count)
+
+    scenes =
+      templates
+      |> Enum.with_index()
+      |> Enum.map(fn {template, idx} ->
+        # Simple strategy: Distribute assets evenly across scenes
+        first_idx = rem(idx * 2, length(assets))
+        last_idx = rem(idx * 2 + 1, length(assets))
+
+        first_asset = Enum.at(assets, first_idx)
+        last_asset = Enum.at(assets, last_idx)
+
+        video_prompt = template.video_prompt |> String.trim()
+
+        %{
+          "title" => template.title,
+          "description" => video_prompt,
+          "prompt" => video_prompt,
+          "duration" => template.default_duration,
+          "time_start" => template.time_start,
+          "time_end" => template.time_end,
+          "transition" => "fade",
+          "scene_type" => to_string(template.type),
+          "camera_movement" => to_string(template.camera_movement),
+          "motion_goal" => template.motion_goal,
+          "asset_ids" => [first_asset.id, last_asset.id],
+          "music_description" => template.music_description,
+          "music_style" => template.music_style,
+          "music_energy" => template.music_energy
+        }
+      end)
+
+    {:ok, scenes}
   end
 end
