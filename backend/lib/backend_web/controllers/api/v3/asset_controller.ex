@@ -3,7 +3,192 @@ defmodule BackendWeb.Api.V3.AssetController do
 
   alias Backend.Repo
   alias Backend.Schemas.Asset
+  import Ecto.Query
   require Logger
+
+  @default_limit 25
+  @max_limit 1000
+
+  def index(conn, params) do
+    params = normalize_asset_params(params)
+    {limit, offset} = extract_pagination(params)
+
+    base_query =
+      Asset
+      |> maybe_filter(:campaign_id, params["campaign_id"])
+      |> maybe_filter(:type, params["asset_type"] || params["type"])
+
+    total = Repo.aggregate(base_query, :count, :id)
+
+    assets =
+      base_query
+      |> order_by([a], desc: a.inserted_at)
+      |> offset(^offset)
+      |> limit(^limit)
+      |> Repo.all()
+
+    json(conn, %{
+      data: Enum.map(assets, &asset_json/1),
+      meta: %{total: total, limit: limit, offset: offset}
+    })
+  end
+
+  def show(conn, %{"id" => id}) do
+    case Repo.get(Asset, id) do
+      nil ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Asset not found"})
+
+      asset ->
+        json(conn, %{data: asset_json(asset)})
+    end
+  end
+
+  def create(conn, params) do
+    params = normalize_asset_params(params)
+
+    case handle_upload(params) do
+      {:ok, asset_attrs} ->
+        case create_asset(asset_attrs) do
+          {:ok, asset} ->
+            conn
+            |> put_status(:created)
+            |> json(%{data: asset_json(asset)})
+
+          {:error, changeset} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{
+              error: "Validation failed",
+              details: format_changeset_errors(changeset)
+            })
+        end
+
+      {:error, :invalid_file_format} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Invalid file format"})
+
+      {:error, :network_failure, reason} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Failed to download from URL", reason: reason})
+
+      {:error, :missing_source} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Either file upload or source_url must be provided"})
+
+      {:error, reason} ->
+        Logger.error("Asset creation failed: #{inspect(reason)}")
+
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "Failed to create asset"})
+    end
+  end
+
+  def delete(conn, %{"id" => id}) do
+    case Repo.get(Asset, id) do
+      nil ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Asset not found"})
+
+      asset ->
+        Repo.delete!(asset)
+        send_resp(conn, :no_content, "")
+    end
+  end
+
+  def from_url(conn, params) do
+    params = normalize_asset_params(params)
+
+    with {:ok, asset_attrs} <- handle_upload(params),
+         {:ok, asset} <- create_asset(asset_attrs) do
+      conn
+      |> put_status(:created)
+      |> json(%{data: asset_json(asset)})
+    else
+      {:error, :missing_source} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "source_url is required"})
+
+      {:error, :network_failure, reason} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "Failed to download from URL", reason: reason})
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{
+          error: "Validation failed",
+          details: format_changeset_errors(changeset)
+        })
+
+      {:error, reason} ->
+        Logger.error("Asset download failed: #{inspect(reason)}")
+
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "Failed to create asset"})
+    end
+  end
+
+  def from_urls(conn, params) do
+    entries =
+      params["assets"] || params["items"] || params["requests"] ||
+        params["sources"] || []
+
+    if is_list(entries) and entries != [] do
+      {results, failures} =
+        Enum.reduce(entries, {[], []}, fn entry, {ok_acc, error_acc} ->
+          normalized = normalize_asset_params(entry)
+
+          case handle_upload(normalized) do
+            {:ok, attrs} ->
+              case create_asset(attrs) do
+                {:ok, asset} ->
+                  {[asset_json(asset) | ok_acc], error_acc}
+
+                {:error, %Ecto.Changeset{} = changeset} ->
+                  message = format_changeset_errors(changeset)
+                  {ok_acc, [%{source: normalized["source_url"], error: message} | error_acc]}
+              end
+
+            {:error, :missing_source} ->
+              {
+                ok_acc,
+                [%{source: normalized["source_url"], error: "source_url is required"} | error_acc]
+              }
+
+            {:error, :network_failure, reason} ->
+              {ok_acc, [%{source: normalized["source_url"], error: reason} | error_acc]}
+
+            {:error, reason} ->
+              {ok_acc, [%{source: normalized["source_url"], error: to_string(reason)} | error_acc]}
+          end
+        end)
+
+      conn
+      |> put_status(:created)
+      |> json(%{
+        data: Enum.reverse(results),
+        meta: %{
+          created: length(results),
+          failed: length(failures),
+          errors: Enum.reverse(failures)
+        }
+      })
+    else
+      conn
+      |> put_status(:bad_request)
+      |> json(%{error: "assets must be a non-empty array"})
+    end
+  end
 
   @doc """
   POST /api/v3/assets/unified
@@ -31,6 +216,8 @@ defmodule BackendWeb.Api.V3.AssetController do
   - 500: Server error (thumbnail generation failed, etc.)
   """
   def unified(conn, params) do
+    params = normalize_asset_params(params)
+
     case handle_upload(params) do
       {:ok, asset_attrs} ->
         # Generate thumbnail for videos
@@ -42,13 +229,10 @@ defmodule BackendWeb.Api.V3.AssetController do
             conn
             |> put_status(:created)
             |> json(%{
-              id: asset.id,
-              type: asset.type,
-              campaign_id: asset.campaign_id,
-              source_url: asset.source_url,
-              metadata: asset.metadata,
-              has_thumbnail: !is_nil(asset.metadata["thumbnail_generated"]),
-              inserted_at: asset.inserted_at
+              data: asset_json(asset),
+              meta: %{
+                has_thumbnail: not is_nil(get_in(asset.metadata || %{}, ["thumbnail_generated"]))
+              }
             })
 
           {:error, changeset} ->
@@ -122,7 +306,168 @@ defmodule BackendWeb.Api.V3.AssetController do
       |> json(%{error: "Failed to retrieve asset data"})
   end
 
+  def thumbnail(conn, %{"id" => id}) do
+    case Repo.get(Asset, id) do
+      nil ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Asset not found"})
+
+      asset ->
+        case load_thumbnail_blob(asset) do
+          {:ok, blob} ->
+            conn
+            |> put_resp_content_type("image/jpeg")
+            |> put_resp_header("cache-control", "public, max-age=86400")
+            |> send_resp(200, blob)
+
+          {:error, :not_available} ->
+            conn
+            |> put_status(:not_found)
+            |> json(%{error: "Thumbnail not available"})
+
+          {:error, reason} ->
+            Logger.error("Failed to serve thumbnail for asset #{asset.id}: #{inspect(reason)}")
+
+            conn
+            |> put_status(:internal_server_error)
+            |> json(%{error: "Failed to serve thumbnail"})
+        end
+    end
+  end
+
   # Private helper functions
+
+  defp normalize_asset_params(%{} = params) do
+    params =
+      params
+      |> Enum.map(fn {key, value} -> {normalize_key(key), value} end)
+      |> Enum.into(%{})
+
+    metadata =
+      Map.get(params, "metadata") ||
+        Map.get(params, "meta") ||
+        Map.get(params, "tags")
+
+    params
+    |> Map.put_new("campaign_id", params["campaign_id"] || params["campaignId"])
+    |> Map.put_new(
+      "source_url",
+      params["source_url"] || params["sourceUrl"] || params["url"]
+    )
+    |> Map.put_new("type", params["type"] || params["asset_type"])
+    |> Map.put("metadata", metadata)
+  end
+
+  defp normalize_asset_params(params) when is_list(params), do: params
+  defp normalize_asset_params(params), do: params || %{}
+
+  defp normalize_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp normalize_key(key), do: key
+
+  defp extract_pagination(params) do
+    limit =
+      params["limit"]
+      |> to_integer(@default_limit)
+      |> min(@max_limit)
+      |> max(1)
+
+    offset =
+      params["offset"]
+      |> to_integer(0)
+      |> max(0)
+
+    {limit, offset}
+  end
+
+  defp to_integer(nil, default), do: default
+  defp to_integer(value, _default) when is_integer(value), do: value
+
+  defp to_integer(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      _ -> default
+    end
+  end
+
+  defp to_integer(_, default), do: default
+
+  defp maybe_filter(query, _field, nil), do: query
+
+  defp maybe_filter(query, :type, value) do
+    normalized =
+      case value do
+        v when is_atom(v) -> v
+        v when is_binary(v) ->
+          case String.downcase(v) do
+            "image" -> :image
+            "video" -> :video
+            "audio" -> :audio
+            _ -> :unknown
+          end
+
+        _ ->
+          :unknown
+      end
+
+    if normalized in Asset.asset_types() do
+      where(query, [a], a.type == ^normalized)
+    else
+      query
+    end
+  end
+
+  defp maybe_filter(query, :campaign_id, value) do
+    where(query, [a], a.campaign_id == ^value)
+  end
+
+  defp asset_json(asset) do
+    %{
+      id: asset.id,
+      type: asset.type,
+      campaign_id: asset.campaign_id,
+      source_url: asset.source_url,
+      metadata: asset.metadata || %{},
+      inserted_at: asset.inserted_at,
+      updated_at: asset.updated_at
+    }
+  end
+
+  defp load_thumbnail_blob(%Asset{metadata: metadata} = asset) do
+    metadata = metadata || %{}
+
+    cond do
+      path = metadata["thumbnail_path"] and is_binary(path) and File.exists?(path) ->
+        File.read(path)
+
+      asset.type in [:image, "image"] and is_binary(asset.blob_data) ->
+        {:ok, asset.blob_data}
+
+      asset.type in [:video, "video"] and is_binary(asset.blob_data) ->
+        case generate_video_thumbnail(asset.blob_data) do
+          {:ok, path} ->
+            _ = maybe_persist_thumbnail_path(asset, path)
+            File.read(path)
+
+          error ->
+            error
+        end
+
+      true ->
+        {:error, :not_available}
+    end
+  end
+
+  defp maybe_persist_thumbnail_path(asset, path) do
+    metadata =
+      (asset.metadata || %{})
+      |> Map.put("thumbnail_generated", true)
+      |> Map.put("thumbnail_path", path)
+
+    asset
+    |> Asset.changeset(%{metadata: metadata})
+    |> Repo.update()
+  end
 
   defp handle_upload(%{"file" => %Plug.Upload{} = upload} = params) do
     # Handle file upload

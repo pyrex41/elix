@@ -20,6 +20,9 @@ if System.get_env("PHX_SERVER") do
   config :backend, BackendWeb.Endpoint, server: true
 end
 
+# Configure API key authentication for all environments at runtime.
+config :backend, :api_key, System.get_env("API_AUTH_KEY")
+
 if config_env() == :prod do
   # API Keys configuration
   config :backend,

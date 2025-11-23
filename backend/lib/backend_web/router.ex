@@ -5,6 +5,10 @@ defmodule BackendWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :api_authenticated do
+    plug BackendWeb.Plugs.ApiKeyAuth
+  end
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -18,6 +22,10 @@ defmodule BackendWeb.Router do
 
     # OpenAPI spec endpoint
     get "/openapi", OpenApiController, :spec
+  end
+
+  scope "/api", BackendWeb do
+    pipe_through [:api, :api_authenticated]
 
     # API v3 routes
     scope "/v3", Api.V3 do
@@ -31,8 +39,10 @@ defmodule BackendWeb.Router do
       post "/campaigns/:id/create-job", CampaignController, :create_job
 
       # Asset management endpoints
+      resources "/assets", AssetController, only: [:index, :show, :create, :delete]
+      post "/assets/from-url", AssetController, :from_url
+      post "/assets/from-urls", AssetController, :from_urls
       post "/assets/unified", AssetController, :unified
-      get "/assets/:id/data", AssetController, :data
 
       # Job creation endpoints
       post "/jobs/from-image-pairs", JobCreationController, :from_image_pairs
@@ -59,6 +69,15 @@ defmodule BackendWeb.Router do
       post "/audio/generate-scenes", AudioController, :generate_scenes
       get "/audio/status/:job_id", AudioController, :status
       get "/audio/:job_id/download", AudioController, :download
+    end
+  end
+
+  scope "/api", BackendWeb do
+    pipe_through :api
+
+    scope "/v3", Api.V3 do
+      get "/assets/:id/data", AssetController, :data
+      get "/assets/:id/thumbnail", AssetController, :thumbnail
     end
   end
 
