@@ -71,7 +71,7 @@ defmodule Backend.Services.AiService do
       "temperature" => 0.7
     }
 
-    case Req.post(url, json: body, headers: headers) do
+    case Req.post(url, json: body, headers: headers, receive_timeout: 60_000) do
       {:ok, %{status: 200, body: response_body}} ->
         parse_ai_response(response_body, job_type)
 
@@ -120,7 +120,7 @@ defmodule Backend.Services.AiService do
       "temperature" => 0.7
     }
 
-    case Req.post(url, json: body, headers: headers) do
+    case Req.post(url, json: body, headers: headers, receive_timeout: 60_000) do
       {:ok, %{status: 200, body: response_body}} ->
         parse_group_selection_response(response_body, grouped_assets, options)
 

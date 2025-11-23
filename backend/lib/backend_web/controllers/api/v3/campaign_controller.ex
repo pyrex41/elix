@@ -133,7 +133,9 @@ defmodule BackendWeb.Api.V3.CampaignController do
          {:ok, scenes} <- generate_scenes_for_campaign(assets, campaign, params),
          {:ok, job} <- create_job_with_scenes(campaign_id, campaign, scenes, params),
          {:ok, _sub_jobs} <- create_sub_jobs_for_job(job, scenes) do
-      Logger.info("[CampaignController] Job #{job.id} created successfully with #{length(scenes)} scenes")
+      Logger.info(
+        "[CampaignController] Job #{job.id} created successfully with #{length(scenes)} scenes"
+      )
 
       conn
       |> put_status(:created)
@@ -241,6 +243,31 @@ defmodule BackendWeb.Api.V3.CampaignController do
       end)
     end)
   end
+
+  defp normalize_brief(nil), do: nil
+  defp normalize_brief(%{} = brief), do: brief
+
+  defp normalize_brief(brief) when is_binary(brief) do
+    case Jason.decode(brief) do
+      {:ok, decoded} -> decoded
+      _ -> brief
+    end
+  end
+
+  defp normalize_brief(brief), do: brief
+
+  defp format_timestamp(nil), do: nil
+
+  defp format_timestamp(%NaiveDateTime{} = datetime) do
+    NaiveDateTime.to_iso8601(datetime)
+  end
+
+  defp format_timestamp(%DateTime{} = datetime) do
+    DateTime.to_iso8601(datetime)
+  end
+
+  defp format_timestamp(value) when is_binary(value), do: value
+  defp format_timestamp(_), do: nil
 
   defp campaign_stats(campaign_id) do
     job_query =
