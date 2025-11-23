@@ -2,7 +2,7 @@ defmodule BackendWeb.Api.V3.AssetController do
   use BackendWeb, :controller
 
   alias Backend.Repo
-  alias Backend.Schemas.Asset
+  alias Backend.Schemas.{Asset, Campaign}
   import Ecto.Query
   require Logger
 
@@ -26,6 +26,7 @@ defmodule BackendWeb.Api.V3.AssetController do
       |> offset(^offset)
       |> limit(^limit)
       |> Repo.all()
+      |> Repo.preload(:campaign)
 
     json(conn, %{
       data: Enum.map(assets, &asset_json/1),
@@ -34,7 +35,7 @@ defmodule BackendWeb.Api.V3.AssetController do
   end
 
   def show(conn, %{"id" => id}) do
-    case Repo.get(Asset, id) do
+    case Repo.get(Asset, id) |> Repo.preload(:campaign) do
       nil ->
         conn
         |> put_status(:not_found)
@@ -52,6 +53,8 @@ defmodule BackendWeb.Api.V3.AssetController do
       {:ok, asset_attrs} ->
         case create_asset(asset_attrs) do
           {:ok, asset} ->
+            asset = Repo.preload(asset, :campaign)
+
             conn
             |> put_status(:created)
             |> json(%{data: asset_json(asset)})
@@ -107,6 +110,8 @@ defmodule BackendWeb.Api.V3.AssetController do
 
     with {:ok, asset_attrs} <- handle_upload(params),
          {:ok, asset} <- create_asset(asset_attrs) do
+      asset = Repo.preload(asset, :campaign)
+
       conn
       |> put_status(:created)
       |> json(%{data: asset_json(asset)})
@@ -152,6 +157,7 @@ defmodule BackendWeb.Api.V3.AssetController do
             {:ok, attrs} ->
               case create_asset(attrs) do
                 {:ok, asset} ->
+                  asset = Repo.preload(asset, :campaign)
                   {[asset_json(asset) | ok_acc], error_acc}
 
                 {:error, %Ecto.Changeset{} = changeset} ->
@@ -227,6 +233,8 @@ defmodule BackendWeb.Api.V3.AssetController do
         # Create asset in database
         case create_asset(asset_attrs) do
           {:ok, asset} ->
+            asset = Repo.preload(asset, :campaign)
+
             conn
             |> put_status(:created)
             |> json(%{
@@ -433,15 +441,139 @@ defmodule BackendWeb.Api.V3.AssetController do
   end
 
   defp asset_json(asset) do
-    %{
+    metadata = asset.metadata || %{}
+    type = asset_type_string(asset)
+
+    base = %{
       id: asset.id,
-      type: asset.type,
-      campaign_id: asset.campaign_id,
-      source_url: asset.source_url,
-      metadata: asset.metadata || %{},
-      inserted_at: asset.inserted_at,
-      updated_at: asset.updated_at
+      userId: metadata_value(metadata, ["userId", "user_id"]) || "",
+      clientId: asset_client_id(asset, metadata),
+      campaignId: asset.campaign_id,
+      name: asset_name(metadata, asset.id),
+      url: asset_data_url(asset.id),
+      size: parse_integer(metadata["size"]),
+      uploadedAt: format_timestamp(asset.inserted_at),
+      tags: parse_tags(metadata["tags"]),
+      thumbnailBlobId: metadata_value(metadata, ["thumbnail_blob_id", "thumbnailBlobId"]),
+      sourceUrl: asset.source_url,
+      type: type,
+      format: asset_format(asset, metadata)
     }
+
+    case type do
+      "image" ->
+        Map.merge(base, %{
+          width: parse_integer(metadata["width"], 0),
+          height: parse_integer(metadata["height"], 0)
+        })
+
+      "video" ->
+        Map.merge(base, %{
+          width: parse_integer(metadata["width"], 0),
+          height: parse_integer(metadata["height"], 0),
+          duration: parse_integer(metadata["duration"], 0),
+          thumbnailUrl: asset_thumbnail_url(asset.id)
+        })
+
+      "audio" ->
+        Map.merge(base, %{
+          duration: parse_integer(metadata["duration"], 0),
+          waveformUrl: metadata_value(metadata, ["waveform_url", "waveformUrl"])
+        })
+
+      _ ->
+        base
+    end
+  end
+
+  defp asset_client_id(%{campaign: %Campaign{client_id: client_id}}, _metadata), do: client_id
+
+  defp asset_client_id(_asset, metadata) do
+    metadata_value(metadata, ["clientId", "client_id"])
+  end
+
+  defp asset_name(metadata, fallback) do
+    metadata["name"] ||
+      metadata["original_name"] ||
+      metadata["originalName"] ||
+      fallback
+  end
+
+  defp asset_type_string(%{type: type}) when is_atom(type), do: Atom.to_string(type)
+  defp asset_type_string(%{type: type}) when is_binary(type), do: type
+  defp asset_type_string(_), do: "image"
+
+  defp asset_data_url(id), do: "/api/v3/assets/#{id}/data"
+  defp asset_thumbnail_url(id), do: "/api/v3/assets/#{id}/thumbnail"
+
+  defp format_timestamp(nil), do: nil
+  defp format_timestamp(%NaiveDateTime{} = dt), do: NaiveDateTime.to_iso8601(dt)
+  defp format_timestamp(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp format_timestamp(value) when is_binary(value), do: value
+  defp format_timestamp(_), do: nil
+
+  defp parse_integer(value, default \\ nil)
+  defp parse_integer(nil, default), do: default
+  defp parse_integer(value, _default) when is_integer(value), do: value
+  defp parse_integer(value, _default) when is_float(value), do: trunc(value)
+
+  defp parse_integer(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      :error -> default
+    end
+  end
+
+  defp parse_integer(_, default), do: default
+
+  defp parse_tags(nil), do: nil
+  defp parse_tags(tags) when is_list(tags), do: tags
+
+  defp parse_tags(tags) when is_binary(tags) do
+    case Jason.decode(tags) do
+      {:ok, decoded} when is_list(decoded) -> decoded
+      _ -> nil
+    end
+  end
+
+  defp parse_tags(_), do: nil
+
+  defp metadata_value(metadata, keys) do
+    Enum.find_value(List.wrap(keys), fn key ->
+      case key do
+        binary when is_binary(binary) -> Map.get(metadata, binary)
+        atom when is_atom(atom) -> Map.get(metadata, atom)
+      end
+    end)
+  end
+
+  defp asset_format(_asset, %{"format" => format}) when is_binary(format),
+    do: String.downcase(format)
+
+  defp asset_format(_asset, %{"format" => format}) when is_atom(format),
+    do: format |> Atom.to_string() |> String.downcase()
+
+  defp asset_format(_asset, %{"content_type" => content_type}) when is_binary(content_type) do
+    content_type
+    |> String.split("/")
+    |> List.last()
+    |> String.downcase()
+  end
+
+  defp asset_format(asset, _metadata) do
+    case asset.source_url do
+      nil ->
+        nil
+
+      url ->
+        url
+        |> URI.parse()
+        |> Map.get(:path)
+        |> case do
+          nil -> nil
+          path -> path |> Path.extname() |> String.trim_leading(".") |> String.downcase()
+        end
+    end
   end
 
   defp load_thumbnail_blob(%Asset{metadata: metadata} = asset) do

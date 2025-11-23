@@ -64,6 +64,7 @@ defmodule Backend.Repo.Migrations.CreateTables do
       add :storyboard, :map
       add :progress, :map
       add :result, :binary
+      add :audio_blob, :binary
 
       timestamps()
     end

@@ -32,10 +32,12 @@ defmodule BackendWeb.Router do
       # Client management endpoints
       resources "/clients", ClientController, except: [:new, :edit]
       get "/clients/:id/campaigns", ClientController, :get_campaigns
+      get "/clients/:id/stats", ClientController, :stats
 
       # Campaign management endpoints
       resources "/campaigns", CampaignController, except: [:new, :edit]
       get "/campaigns/:id/assets", CampaignController, :get_assets
+      get "/campaigns/:id/stats", CampaignController, :stats
       post "/campaigns/:id/create-job", CampaignController, :create_job
 
       # Asset management endpoints

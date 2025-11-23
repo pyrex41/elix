@@ -5,7 +5,7 @@ defmodule BackendWeb.Api.V3.ClientController do
   use BackendWeb, :controller
 
   alias Backend.Repo
-  alias Backend.Schemas.{Client, Campaign}
+  alias Backend.Schemas.{Client, Campaign, Job}
   import Ecto.Query
   require Logger
 
@@ -101,7 +101,7 @@ defmodule BackendWeb.Api.V3.ClientController do
         |> json(%{error: %{message: "Client not found", code: "not_found"}})
 
       _client ->
-        campaigns = Repo.all(from c in Campaign, where: c.client_id == ^client_id)
+        campaigns = Repo.all(from(c in Campaign, where: c.client_id == ^client_id))
 
         json(conn, %{
           data: Enum.map(campaigns, &campaign_json/1),
@@ -110,6 +110,18 @@ defmodule BackendWeb.Api.V3.ClientController do
             total: length(campaigns)
           }
         })
+    end
+  end
+
+  def stats(conn, %{"id" => client_id}) do
+    case Repo.get(Client, client_id) do
+      nil ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: %{message: "Client not found", code: "not_found"}})
+
+      _client ->
+        json(conn, %{data: build_client_stats(client_id)})
     end
   end
 
@@ -142,5 +154,27 @@ defmodule BackendWeb.Api.V3.ClientController do
         String.replace(acc, "%{#{key}}", to_string(value))
       end)
     end)
+  end
+
+  defp build_client_stats(client_id) do
+    campaign_query = from(c in Campaign, where: c.client_id == ^client_id)
+
+    campaign_count = Repo.aggregate(campaign_query, :count, :id)
+
+    job_count =
+      Repo.aggregate(
+        from(j in Job,
+          join: c in subquery(campaign_query),
+          on: fragment("json_extract(?, '$.campaign_id') = ?", j.parameters, c.id)
+        ),
+        :count,
+        :id
+      )
+
+    %{
+      campaignCount: campaign_count,
+      videoCount: job_count,
+      totalSpend: 0.0
+    }
   end
 end

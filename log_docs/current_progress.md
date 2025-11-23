@@ -1,46 +1,71 @@
 # Current Project Progress
-Last Updated: 2025-11-23 (Evening Session)
+Last Updated: 2025-11-23 (Late Evening - Deployment Session)
 
-## 🚀 Project Status: Phoenix Backend Complete, APIs Fixed & Repository Secured
+## 🚀 Project Status: End-to-End Pipeline Working, Deploying to Fly.io
 
-### Recent Accomplishments (Session: 2025-11-23 Evening)
+### Latest Accomplishments (Session: 2025-11-23 Late Evening)
+
+#### ✅ CRITICAL BUG FIX: Video Blob Preservation
+**Fixed coordinator overwriting video blobs with completion messages**
+- **Problem**: StitchWorker saved video blob to `result` field, then Coordinator overwrote it with a string message
+- **Solution**: Modified `coordinator.ex:187-213` to check if `job.result` is already set before updating
+- **Verification**:
+  - Job 5 (before fix): 71-byte string ❌
+  - Job 6 (after fix): 33 MB video blob ✅
+- **Impact**: Videos now properly stored and downloadable via `/api/v3/videos/:job_id/combined`
+
+#### ✅ End-to-End Pipeline Testing with ngrok
+**Successfully tested complete video generation pipeline:**
+1. ✅ Campaign asset organization (84 images grouped into 15 categories)
+2. ✅ AI scene selection (xAI chose 4 best scenes)
+3. ✅ Parallel Replicate rendering (4 videos in ~2 minutes)
+4. ✅ FFmpeg video stitching (4 clips → single MP4)
+5. ✅ Video storage and download (32 MB, 1080p, H.264)
+
+**Test Results:**
+- Job 6 completed successfully: 16-second video, 1920x1080, 24fps
+- All 4 scenes rendered in parallel using Veo 3 model
+- ngrok tunnel successfully served images to Replicate
+- Video downloadable at: `http://localhost:4000/api/v3/videos/6/combined`
+
+#### ✅ Fly.io Deployment Configuration
+**Prepared production deployment:**
+- Created `Dockerfile` with FFmpeg support
+- Created `fly.toml` with proper configuration
+- Added `.dockerignore` for efficient builds
+- Created comprehensive `DEPLOYMENT.md` guide
+- Set all required secrets:
+  - `PUBLIC_BASE_URL=https://gauntlet-video-server.fly.dev`
+  - `VIDEO_GENERATION_MODEL=veo3`
+  - `REPLICATE_API_KEY`, `XAI_API_KEY`, `SECRET_KEY_BASE`
+
+#### 🔄 In Progress: Fly.io Deployment
+**Current status:** Building Docker image
+- ✅ Fixed Elixir/Erlang version compatibility
+- ✅ Added FFmpeg to production image
+- ✅ Image building successfully (193 MB)
+- ⏳ Deploying to fly.io machines
+
+### Previous Session Accomplishments (2025-11-23 Evening)
 
 #### ✅ API Controller Fixes & Campaign Pipeline
 Fixed critical schema mismatches between controllers and database:
-- **Fixed ClientController**: Corrected fields to use `name`, `brand_guidelines` (removed non-existent `email`, `metadata`)
-- **Fixed CampaignController**: Updated to use `name`, `brief`, `client_id` (removed non-existent `status`, `metadata`)
+- **Fixed ClientController**: Corrected fields to use `name`, `brand_guidelines`
+- **Fixed CampaignController**: Updated to use `name`, `brief`, `client_id`
 - **Fixed AssetController**: Properly mapped `type`, `source_url`, `metadata` fields
 - **Campaign Job Creation**: Fully functional pipeline endpoint `/campaigns/:id/create-job`
-- **Job Type Fix**: Updated to use valid enum types (`property_photos`, `image_pairs`)
 
 #### ✅ OpenApiSpex Removal
 Successfully removed OpenApiSpex/Swagger integration:
 - **Removed**: All OpenApiSpex dependencies and annotations
 - **Simplified**: API documentation to plain JSON route list
-- **Reasoning**: Manual OpenAPI annotations were tedious without auto-generation
 
 #### ✅ Git Repository Security Fix
 Cleaned sensitive data from git history:
-- **Removed**: API keys (Replicate, OpenAI, xAI) from all commits
+- **Removed**: API keys from all commits
 - **Cleaned**: Git history using filter-branch
-- **Force Pushed**: Clean history to GitHub repository
-- **Added**: `.env.example` template for documentation
-- **Secured**: Repository now safe for public sharing
-
-#### ✅ Complete Backend Implementation
-Successfully implemented a full Phoenix/Elixir video generation backend with 100% task completion:
-- **12 main tasks** completed
-- **53 subtasks** completed
-- **25+ API endpoints** implemented
-- **8,000+ lines** of production code
-- **80+ tests** passing
-
-#### ✅ Data Migration Success
-Migrated existing data from legacy database:
-- **2 clients** imported (Mike Tikh Properties, Wander)
-- **4 campaigns** with proper associations
-- **259 assets** with blob data (~40-50MB of images)
-- All relationships and IDs preserved
+- **Force Pushed**: Clean history to GitHub
+- **Added**: `.env.example` template
 
 ### Current Work Status
 
@@ -55,17 +80,20 @@ Migrated existing data from legacy database:
    - Job creation endpoints
    - Job status polling
    - Job approval workflow
+   - **Campaign-to-Job pipeline** ✅
 
 3. **Workflow Engine**
    - GenServer-based coordinator
    - PubSub event system
    - Startup recovery mechanism
+   - **Fixed video blob bug** ✅
 
 4. **Video Processing**
-   - Parallel rendering with Replicate API
+   - Parallel rendering with Replicate API (Veo 3)
    - FFmpeg video stitching
    - Audio generation with MusicGen
    - Video serving with Range support
+   - **End-to-end tested and working** ✅
 
 5. **Advanced Features**
    - Scene management CRUD
@@ -73,116 +101,172 @@ Migrated existing data from legacy database:
    - CDN-ready architecture
    - Thumbnail generation
 
+6. **Deployment**
+   - Dockerfile with FFmpeg
+   - Fly.io configuration
+   - Secrets management
+   - **Deployment in progress** 🔄
+
 #### 🔄 In Progress
-- None (all implementation tasks complete)
+- Fly.io deployment (image built, deploying to machines)
 
-#### 📋 Next Steps (Todo List)
-1. Recreate `.env` file with API keys
-2. Deploy Phoenix backend to production
-3. Configure CDN for video delivery
-4. Set up monitoring and logging
-5. Perform load testing
-6. Integrate frontend with new APIs
-
-#### 🔌 Working API Endpoints
-Campaign and Client Management (NEW):
-- `GET/POST /api/v3/clients` - Client CRUD operations
-- `GET/PUT/DELETE /api/v3/clients/:id` - Individual client operations
-- `GET /api/v3/clients/:id/campaigns` - Get client's campaigns
-- `GET/POST /api/v3/campaigns` - Campaign CRUD operations
-- `GET/PUT/DELETE /api/v3/campaigns/:id` - Individual campaign operations
-- `GET /api/v3/campaigns/:id/assets` - Get campaign assets (100+ per campaign)
-- `POST /api/v3/campaigns/:id/create-job` - **Full pipeline: create job from campaign**
-
-All Original Endpoints:
-- Asset upload, job creation, status polling, approval
-- Scene management, video serving, audio generation
-- Complete feature parity with Python backend
+#### 📋 Next Steps
+1. ✅ ~~Fix coordinator video blob bug~~ - COMPLETE
+2. ✅ ~~Test end-to-end pipeline~~ - COMPLETE
+3. ✅ ~~Configure fly.io deployment~~ - COMPLETE
+4. ✅ ~~Set fly.io secrets~~ - COMPLETE
+5. 🔄 Complete fly.io deployment - IN PROGRESS
+6. Test production API endpoints
+7. Configure CDN for video delivery
+8. Set up monitoring and logging
+9. Integrate frontend with production APIs
 
 ### Technical Achievements
+
+#### Critical Bug Fixes
+**Coordinator Video Blob Bug (Fixed 2025-11-23)**
+```elixir
+# Before: Always overwrote result field
+Job.changeset(job, %{status: :completed, result: result, progress: %{percentage: 100}})
+
+# After: Preserve existing result if set
+updates = if is_nil(job.result) do
+  %{status: :completed, result: result, progress: %{percentage: 100}}
+else
+  %{status: :completed, progress: %{percentage: 100}}
+end
+```
+
+#### End-to-End Pipeline Verification
+**Test Job 6 Results:**
+- **Input**: Campaign with 84 images (15 groups)
+- **AI Selection**: 4 best scenes (Exterior, Kitchen, Living Room, Showcase)
+- **Rendering**: 4 parallel Replicate jobs, ~2 minutes total
+- **Output**: 32 MB MP4 video, 16 seconds, 1920x1080, 24fps, H.264
+- **Storage**: Binary blob in SQLite (33,435,877 bytes)
+- **Download**: Working via `/api/v3/videos/6/combined`
 
 #### Architecture Improvements
 - **GenServer > Luigi**: Better real-time control and fault tolerance
 - **PubSub Integration**: Event-driven architecture for job orchestration
 - **Task.async_stream**: Efficient parallel processing (max 10 concurrent)
 - **Streaming**: Large file handling without memory issues
+- **ngrok Integration**: Successful webhook/image serving for Replicate
 
-#### API Features
-- **Full Python Parity**: All v3 endpoints implemented
-- **Enhanced Features**: Range requests, ETag caching, proper error handling
-- **Performance**: Optimized for CDN delivery and video streaming
+#### Deployment Configuration
+**Fly.io Setup:**
+- **App Name**: gauntlet-video-server
+- **Region**: dfw (Dallas)
+- **Resources**: 2GB RAM, 2 shared CPUs
+- **Storage**: 10GB persistent volume (physics_data)
+- **Auto-scaling**: Auto-suspend when idle (cost-effective)
+- **Health Check**: `/api/openapi` endpoint
+- **Cost Estimate**: ~$10-15/month (suspended) + $0.02/hour (active)
 
-#### Data Integrity
-- **Migration Success**: All data transferred with relationships intact
-- **Blob Preservation**: 259 image assets with full binary data
-- **ID Consistency**: Original IDs maintained for seamless transition
+### Working API Endpoints
+
+#### Campaign and Client Management
+- `GET/POST /api/v3/clients` - Client CRUD operations
+- `GET/PUT/DELETE /api/v3/clients/:id` - Individual client operations
+- `GET /api/v3/clients/:id/campaigns` - Get client's campaigns
+- `GET/POST /api/v3/campaigns` - Campaign CRUD operations
+- `GET/PUT/DELETE /api/v3/campaigns/:id` - Individual campaign operations
+- `GET /api/v3/campaigns/:id/assets` - Get campaign assets
+- `POST /api/v3/campaigns/:id/create-job` - **Full pipeline tested** ✅
+
+#### Job Management
+- `POST /api/v3/jobs/from-image-pairs` - Create job from parameters
+- `GET /api/v3/jobs/:id` - Get job status
+- `POST /api/v3/jobs/:id/approve` - Approve and start rendering
+- `GET /api/v3/videos/:job_id/combined` - **Download final video** ✅
+
+#### Asset Management
+- `POST /api/v3/assets` - Upload asset with blob data
+- `GET /api/v3/assets/:id` - Get asset metadata
+- `GET /api/v3/assets/:id/data` - Download asset binary data
 
 ### Known Issues & Blockers
 
 #### ✅ Resolved Issues
-- **Disk Space**: Previously at 100% capacity - RESOLVED (commits working)
-- **API Secrets in Git**: Exposed API keys in history - RESOLVED (history cleaned)
-- **Schema Mismatches**: Controller/database field mismatches - RESOLVED (all fixed)
+- **Disk Space**: Previously at 100% capacity - RESOLVED
+- **API Secrets in Git**: Exposed API keys in history - RESOLVED
+- **Schema Mismatches**: Controller/database field mismatches - RESOLVED
+- **Video Blob Bug**: Coordinator overwriting video blobs - RESOLVED ✅
+- **Pipeline Testing**: End-to-end verification - COMPLETE ✅
 
-#### ⚠️ Important Notes
-- **Environment File**: `.env` file needs to be recreated locally with API keys
-- **Git History**: Repository history was rewritten (force push completed)
+#### 🔄 In Progress
+- **Fly.io Deployment**: Docker image built, deploying to machines
 
 ### Project Trajectory
 
 #### Completion Metrics
 - **Implementation**: 100% complete ✅
-- **Testing**: Basic tests passing ✅
-- **Documentation**: Comprehensive docs created ✅
-- **Data Migration**: Successfully completed ✅
-- **Production Ready**: Yes (pending deployment)
+- **Testing**: End-to-end pipeline verified ✅
+- **Bug Fixes**: Critical video blob bug fixed ✅
+- **Documentation**: Comprehensive deployment guide created ✅
+- **Deployment**: In progress 🔄
+- **Production Ready**: Almost (deployment in progress)
 
 #### Quality Indicators
 - **Compilation**: Clean, no warnings
 - **Server Status**: Runs successfully
 - **API Response**: All endpoints functional
 - **Error Handling**: Comprehensive coverage
+- **End-to-End**: Tested and working with real Replicate API ✅
 
 ### File Structure Overview
 
 ```
 /Users/reuben/gauntlet/video/elix/
-├── backend/                    # Phoenix application (NEW)
+├── backend/                    # Phoenix application
+│   ├── Dockerfile              # With FFmpeg support ✅
+│   ├── fly.toml                # Fly.io configuration ✅
+│   ├── DEPLOYMENT.md           # Deployment guide ✅
+│   ├── .dockerignore           # Build optimization ✅
 │   ├── lib/backend/
 │   │   ├── schemas/            # 6 Ecto schemas
 │   │   ├── services/           # AI, Replicate, FFmpeg, MusicGen
-│   │   └── workflow/           # Coordinator, Workers
+│   │   └── workflow/
+│   │       ├── coordinator.ex  # Fixed video blob bug ✅
+│   │       ├── render_worker.ex
+│   │       └── stitch_worker.ex
 │   ├── lib/backend_web/
 │   │   └── controllers/api/v3/ # All v3 endpoints
-│   └── priv/repo/migrations/   # Database setup
+│   └── data/
+│       └── backend_dev.db      # Test videos stored ✅
 ├── .taskmaster/
-│   ├── tasks/tasks.json        # All tasks marked complete
-│   └── reports/                # Completion report
-├── scenes.db                   # Legacy database (migrated from)
+├── scenes.db                   # Legacy database
 └── log_docs/
-    ├── PROJECT_LOG_2025-11-23_backend_implementation_and_migration.md
+    ├── PROJECT_LOG_*.md
     └── current_progress.md     # This file
-
 ```
 
 ### Summary
 
-The Phoenix/Elixir backend is **fully implemented** with **complete feature parity** to the Python backend. All 12 planned tasks have been completed, including complex features like parallel video rendering, audio generation, and scene management.
+The Phoenix/Elixir backend is **fully implemented, tested end-to-end, and deploying to production**.
 
-**Key achievements this session:**
-- Fixed all API controller/schema mismatches
-- Successfully removed OpenApiSpex in favor of simpler documentation
-- Cleaned git history of exposed API keys
-- Pushed clean repository to GitHub
-- Created `.env.example` template for environment setup
+**Major achievements this session:**
+1. ✅ **Fixed critical video blob bug** - Videos now properly stored
+2. ✅ **Tested complete pipeline** - 84 images → AI selection → 4 parallel renders → stitched video
+3. ✅ **Verified video quality** - 32 MB, 1080p, H.264, downloadable
+4. ✅ **Configured deployment** - Dockerfile with FFmpeg, fly.io setup complete
+5. 🔄 **Deploying to production** - Image built, deploying to fly.io
 
-The system has been verified to compile, run, and respond to API requests correctly. All existing data (clients, campaigns, and assets) has been successfully migrated from the legacy database.
+**Test Results:**
+- Job 6: 4-scene video rendered successfully
+- Duration: 16 seconds at 24fps
+- Resolution: 1920x1080 (Full HD)
+- Size: 33.4 MB
+- Pipeline time: ~2 minutes for parallel rendering
 
-**Current Status**: Backend complete, API fixes applied, repository secured and pushed to GitHub.
+**Current Status**: End-to-end pipeline working perfectly. Deployment to fly.io in progress (Docker image built successfully, deploying to machines).
 
 ### Next Session Priority
-1. Recreate `.env` file with actual API keys
-2. Begin production deployment process
-3. Set up CDN for video delivery
-4. Configure monitoring infrastructure
-5. Integrate frontend with the new Phoenix backend APIs
+1. ✅ ~~Fix video blob bug~~ - COMPLETE
+2. ✅ ~~Test end-to-end pipeline~~ - COMPLETE
+3. 🔄 Complete fly.io deployment - IN PROGRESS
+4. Test production endpoints with Replicate
+5. Configure CDN for video delivery
+6. Set up monitoring and alerts
+7. Load testing with multiple concurrent jobs
+8. Integrate frontend with production API
