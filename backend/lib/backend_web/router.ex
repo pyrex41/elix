@@ -27,6 +27,32 @@ defmodule BackendWeb.Router do
   scope "/api", BackendWeb do
     pipe_through [:api, :api_authenticated]
 
+    # Ash Pipeline API routes
+    forward "/v3/pipelines", AshJsonApi.Router,
+      domains: [Backend.Pipelines.Domain],
+      json_schema: "/json_schema",
+      open_api: "/open_api"
+
+    forward "/v3/nodes", AshJsonApi.Router,
+      domains: [Backend.Pipelines.Domain],
+      json_schema: "/json_schema",
+      open_api: "/open_api"
+
+    forward "/v3/edges", AshJsonApi.Router,
+      domains: [Backend.Pipelines.Domain],
+      json_schema: "/json_schema",
+      open_api: "/open_api"
+
+    forward "/v3/pipeline_runs", AshJsonApi.Router,
+      domains: [Backend.Pipelines.Domain],
+      json_schema: "/json_schema",
+      open_api: "/open_api"
+
+    forward "/v3/node_results", AshJsonApi.Router,
+      domains: [Backend.Pipelines.Domain],
+      json_schema: "/json_schema",
+      open_api: "/open_api"
+
     # API v3 routes
     scope "/v3", Api.V3 do
       # Client management endpoints

@@ -50,7 +50,17 @@ defmodule Backend.MixProject do
       {:jason, "~> 1.4"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:req, "~> 0.4"}
+      {:req, "~> 0.4"},
+      # Ash Framework
+      {:ash, "~> 3.4"},
+      {:ash_phoenix, "~> 2.1"},
+      {:ash_json_api, "~> 1.4"},
+      {:ash_sqlite, "~> 0.2"},
+      {:ash_state_machine, "~> 0.2"},
+      # Background Jobs
+      {:oban, "~> 2.18"},
+      # Templating
+      {:solid, "~> 0.14"}
     ]
   end
 

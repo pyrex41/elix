@@ -30,6 +30,16 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# Configure Ash Framework
+config :backend,
+  ash_domains: [Backend.Pipelines.Domain]
+
+# Configure Oban
+config :backend, Oban,
+  repo: Backend.Repo,
+  plugins: [Oban.Plugins.Pruner],
+  queues: [default: 10, pipelines: 5, nodes: 20]
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

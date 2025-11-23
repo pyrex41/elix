@@ -14,6 +14,8 @@ defmodule Backend.Application do
        repos: Application.fetch_env!(:backend, :ecto_repos), skip: skip_migrations?()},
       {DNSCluster, query: Application.get_env(:backend, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Backend.PubSub},
+      # Oban background job processor
+      {Oban, Application.fetch_env!(:backend, Oban)},
       # Workflow Coordinator GenServer
       Backend.Workflow.Coordinator,
       # Start to serve requests, typically the last entry
