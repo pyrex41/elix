@@ -213,11 +213,11 @@ defmodule BackendWeb.Api.V3.CampaignController do
       id: campaign.id,
       clientId: campaign.client_id,
       name: campaign.name,
-      goal: Map.get(campaign, :goal),
-      status: Map.get(campaign, :status),
-      productUrl: Map.get(campaign, :product_url),
+      goal: campaign.goal,
+      status: campaign.status,
+      productUrl: campaign.product_url,
       brief: normalize_brief(campaign.brief),
-      metadata: Map.get(campaign, :metadata),
+      metadata: campaign.metadata,
       createdAt: format_timestamp(campaign.inserted_at),
       updatedAt: format_timestamp(campaign.updated_at)
     }

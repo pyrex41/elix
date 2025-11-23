@@ -8,6 +8,10 @@ defmodule Backend.Schemas.Campaign do
   schema "campaigns" do
     field :name, :string
     field :brief, :string
+    field :goal, :string
+    field :status, :string
+    field :product_url, :string
+    field :metadata, :map
 
     belongs_to :client, Backend.Schemas.Client
     has_many :assets, Backend.Schemas.Asset
@@ -21,10 +25,9 @@ defmodule Backend.Schemas.Campaign do
   """
   def changeset(campaign, attrs) do
     campaign
-    |> cast(attrs, [:name, :brief, :client_id])
-    |> validate_required([:name, :brief, :client_id])
+    |> cast(attrs, [:name, :brief, :goal, :status, :product_url, :metadata, :client_id])
+    |> validate_required([:name, :client_id])
     |> validate_length(:name, min: 1, max: 255)
-    |> validate_length(:brief, min: 1)
     |> foreign_key_constraint(:client_id)
   end
 
@@ -33,7 +36,7 @@ defmodule Backend.Schemas.Campaign do
   """
   def migration_changeset(campaign, attrs) do
     campaign
-    |> cast(attrs, [:id, :name, :brief, :client_id])
+    |> cast(attrs, [:id, :name, :brief, :goal, :status, :product_url, :metadata, :client_id])
     |> validate_required([:id, :name, :client_id])
     |> validate_length(:name, min: 1, max: 255)
     |> foreign_key_constraint(:client_id)
