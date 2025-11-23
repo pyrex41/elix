@@ -17,9 +17,10 @@ defmodule Backend.Workflow.AudioWorker do
   ## Parameters
     - job_id: The job ID to generate audio for
     - audio_params: Map with audio generation parameters:
-      - fade_duration: Fade duration between segments (default: 1.0)
+      - fade_duration: Fade duration between segments (default: 1.5)
       - sync_mode: How to sync final audio with video (:trim, :stretch, :compress)
-      - generate_per_scene: Generate audio per scene vs. single continuous track
+      - default_duration: Default duration per scene in seconds (default: 4.0)
+      - use_unified_generation: Use single continuous generation vs per-scene (default: true)
 
   ## Returns
     - {:ok, job} with updated audio_blob on success
@@ -31,10 +32,25 @@ defmodule Backend.Workflow.AudioWorker do
     # Load job with scenes from storyboard
     case load_job_with_scenes(job_id) do
       {:ok, job, scenes} ->
-        # Process scenes sequentially
-        case process_scenes_sequentially(scenes, audio_params) do
-          {:ok, audio_segments} ->
-            # Merge all segments
+        # Choose generation strategy
+        use_unified = Map.get(audio_params, :use_unified_generation, true)
+
+        generation_result =
+          if use_unified do
+            # New unified approach: generate all scenes at once with continuation
+            generate_unified_audio(scenes, audio_params)
+          else
+            # Legacy approach: process scenes one by one
+            process_scenes_sequentially(scenes, audio_params)
+          end
+
+        case generation_result do
+          {:ok, final_audio} when is_binary(final_audio) ->
+            # Unified generation returns final audio blob directly
+            finalize_with_video(job, final_audio, audio_params)
+
+          {:ok, audio_segments} when is_list(audio_segments) ->
+            # Sequential generation returns segments to merge
             case merge_and_finalize_audio(job, audio_segments, audio_params) do
               {:ok, updated_job} ->
                 Logger.info("[AudioWorker] Audio generation completed for job #{job_id}")
@@ -71,6 +87,22 @@ defmodule Backend.Workflow.AudioWorker do
   end
 
   # Private functions
+
+  defp generate_unified_audio(scenes, audio_params) do
+    Logger.info("[AudioWorker] Using unified music generation for #{length(scenes)} scenes")
+
+    # Use the new unified generation function from MusicgenService
+    default_duration = Map.get(audio_params, :default_duration, 4.0)
+    fade_duration = Map.get(audio_params, :fade_duration, 1.5)
+
+    options = %{
+      default_duration: default_duration,
+      fade_duration: fade_duration,
+      base_style: "luxury real estate showcase"
+    }
+
+    MusicgenService.generate_music_for_scenes(scenes, options)
+  end
 
   defp load_job_with_scenes(job_id) do
     case Repo.get(Job, job_id) do
@@ -185,8 +217,10 @@ defmodule Backend.Workflow.AudioWorker do
   end
 
   defp generate_audio_for_scene(scene, previous_result, audio_params) do
+    default_duration = Map.get(audio_params, :default_duration, 4.0)
+
     options = %{
-      duration: scene["duration"] || 5,
+      duration: scene["duration"] || default_duration,
       prompt: build_scene_prompt(scene, audio_params)
     }
 
@@ -213,19 +247,43 @@ defmodule Backend.Workflow.AudioWorker do
     # Check if custom prompt provided
     case Map.get(audio_params, :prompt) do
       nil ->
-        # Build from scene description
-        description = scene["description"] || ""
-        scene_type = scene["scene_type"] || "general"
+        # Check if scene has template-based music metadata
+        case {scene["music_description"], scene["music_style"], scene["music_energy"]} do
+          {desc, style, energy} when not is_nil(desc) and not is_nil(style) ->
+            # Use template-based prompt
+            build_template_based_prompt(desc, style, energy)
 
-        base = "Cinematic background music"
-
-        mood = determine_mood(description, scene_type)
-
-        "#{base}, #{mood}, instrumental, seamless loop"
+          _ ->
+            # Fallback to legacy prompt building
+            build_legacy_prompt(scene)
+        end
 
       custom_prompt ->
         custom_prompt
     end
+  end
+
+  defp build_template_based_prompt(description, style, energy) do
+    """
+    Luxury real estate showcase - #{description}.
+    Style: #{style}.
+    Energy level: #{energy}.
+    Instrumental, cinematic, high production quality, seamless transitions.
+    """
+    |> String.trim()
+    |> String.replace("\n", " ")
+  end
+
+  defp build_legacy_prompt(scene) do
+    # Build from scene description (legacy)
+    description = scene["description"] || ""
+    scene_type = scene["scene_type"] || "general"
+
+    base = "Cinematic background music"
+
+    mood = determine_mood(description, scene_type)
+
+    "#{base}, #{mood}, instrumental, seamless loop"
   end
 
   defp determine_mood(description, scene_type) do
@@ -267,7 +325,7 @@ defmodule Backend.Workflow.AudioWorker do
   end
 
   defp generate_silence_segment(scene) do
-    duration = scene["duration"] || 5
+    duration = scene["duration"] || 4.0
 
     case MusicgenService.generate_scene_audio(scene, %{duration: duration}) do
       {:ok, result} ->

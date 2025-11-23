@@ -6,10 +6,13 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
 
   setup do
     # Ensure Coordinator is running
-    case GenServer.whereis(Coordinator) do
-      nil -> start_supervised!(Coordinator)
-      _pid -> :ok
-    end
+    coordinator_pid =
+      case GenServer.whereis(Coordinator) do
+        nil -> start_supervised!(Coordinator)
+        pid -> pid
+      end
+
+    Backend.DataCase.allow_repo_access(coordinator_pid)
 
     :ok
   end

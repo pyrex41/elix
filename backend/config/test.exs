@@ -28,3 +28,5 @@ config :backend,
   asset_base_url: "http://localhost:4002",
   video_generation_model: "veo3",
   replicate_webhook_url: nil
+
+config :backend, :workflow_processing_enabled, false

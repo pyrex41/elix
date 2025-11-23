@@ -3,7 +3,7 @@ defmodule Backend.Services.MusicgenService do
   Service module for interacting with Replicate's MusicGen API.
   Handles audio generation for video scenes with continuation support.
   """
-  require Logger
+require Logger
 
   @replicate_api_url "https://api.replicate.com/v1/predictions"
   @musicgen_model "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb"
@@ -51,6 +51,75 @@ defmodule Backend.Services.MusicgenService do
       Map.put(options, :continuation_start, previous_audio.continuation_token)
 
     generate_scene_audio(scene, continuation_options)
+  end
+
+  @doc """
+  Generates a complete music track for multiple scenes using continuation.
+
+  This function generates audio for each scene sequentially, using continuation
+  tokens to create a seamless audio experience across all scenes.
+
+  ## Parameters
+    - scenes: List of scene maps
+    - options: Map with optional parameters:
+      - default_duration: Default duration per scene in seconds (default: 4.0)
+      - fade_duration: Duration of fade effects when merging (default: 1.5)
+      - base_style: Base music style (default: "luxury real estate showcase")
+
+  ## Returns
+    - {:ok, final_audio_blob} on success
+    - {:error, reason} on failure
+  """
+  def generate_music_for_scenes(scenes, options \\ %{}) do
+    default_duration = Map.get(options, :default_duration, 4.0)
+    fade_duration = Map.get(options, :fade_duration, 1.5)
+
+    Logger.info(
+      "[MusicgenService] Generating music for #{length(scenes)} scenes with continuation"
+    )
+
+    # Generate audio for each scene with continuation
+    result =
+      scenes
+      |> Enum.reduce_while({:ok, []}, fn scene, {:ok, acc} ->
+        # Determine duration for this scene
+        duration = scene["duration"] || default_duration
+
+        # Get previous audio for continuation
+        previous_audio = List.last(acc)
+
+        # Generate audio (with or without continuation)
+        scene_result =
+          case previous_audio do
+            nil ->
+              # First scene: no continuation
+              generate_scene_audio(scene, %{duration: duration})
+
+            prev ->
+              # Subsequent scenes: use continuation
+              generate_with_continuation(scene, prev, %{duration: duration})
+          end
+
+        case scene_result do
+          {:ok, audio_data} ->
+            {:cont, {:ok, acc ++ [audio_data]}}
+
+          {:error, reason} ->
+            {:halt, {:error, "Failed to generate audio for scene: #{reason}"}}
+        end
+      end)
+
+    case result do
+      {:ok, audio_segments} ->
+        # Extract audio blobs from segments
+        blobs = Enum.map(audio_segments, & &1.audio_blob)
+
+        # Merge all segments with fade effects
+        merge_audio_segments(blobs, fade_duration)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @doc """
@@ -282,7 +351,31 @@ defmodule Backend.Services.MusicgenService do
   end
 
   defp build_prompt_from_scene(scene) do
-    # Extract mood and style from scene description
+    # Check if scene has template-based music metadata
+    case {scene["music_description"], scene["music_style"], scene["music_energy"]} do
+      {desc, style, energy} when not is_nil(desc) and not is_nil(style) ->
+        # Use template-based music prompt
+        build_template_music_prompt(desc, style, energy)
+
+      _ ->
+        # Fallback to legacy scene description analysis
+        build_legacy_music_prompt(scene)
+    end
+  end
+
+  defp build_template_music_prompt(description, style, energy) do
+    """
+    Luxury real estate showcase - #{description}.
+    Style: #{style}.
+    Energy level: #{energy}.
+    Instrumental, cinematic, high production quality.
+    """
+    |> String.trim()
+    |> String.replace("\n", " ")
+  end
+
+  defp build_legacy_music_prompt(scene) do
+    # Extract mood and style from scene description (legacy method)
     description = scene["description"] || ""
     _title = scene["title"] || ""
 

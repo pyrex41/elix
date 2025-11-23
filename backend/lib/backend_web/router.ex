@@ -71,6 +71,49 @@ defmodule BackendWeb.Router do
       post "/audio/generate-scenes", AudioController, :generate_scenes
       get "/audio/status/:job_id", AudioController, :status
       get "/audio/:job_id/download", AudioController, :download
+
+      # Testing endpoints (can be disabled via config)
+      if Application.compile_env(:backend, :enable_testing_endpoints, true) do
+        scope "/testing" do
+          # Scene template endpoints
+          get "/scene-templates", TestingController, :scene_templates
+          post "/scene-templates/adapt", TestingController, :adapt_scene_templates
+
+          # Image selection testing
+          post "/image-selection", TestingController, :test_image_selection
+
+          # Music generation testing
+          post "/music/single-scene", TestingController, :test_single_scene_music
+          post "/music/multi-scene", TestingController, :test_multi_scene_music
+          post "/music/from-templates", TestingController, :test_music_from_templates
+
+          # Text overlay testing
+          post "/overlay/text", TestingController, :test_text_overlay
+          post "/overlay/preview", TestingController, :preview_text_overlay
+
+          # Voiceover testing
+          post "/voiceover/generate", TestingController, :test_voiceover_generation
+          post "/voiceover/script", TestingController, :generate_voiceover_script
+
+          # Avatar overlay testing (stub for future)
+          post "/avatar/preview", TestingController, :test_avatar_overlay
+
+          # Pipeline control endpoints
+          get "/pipeline/config", TestingController, :get_pipeline_config
+          post "/pipeline/config", TestingController, :update_pipeline_config
+
+          # Prompt preview endpoints
+          post "/prompt-preview", TestingController, :prompt_preview
+
+          # Resource listing endpoints
+          get "/campaigns", TestingController, :list_campaigns
+          get "/campaigns/:id/assets", TestingController, :campaign_assets
+          get "/jobs/:id/preview", TestingController, :job_preview
+
+          # Testing UI
+          get "/ui", TestingController, :testing_ui
+        end
+      end
     end
   end
 

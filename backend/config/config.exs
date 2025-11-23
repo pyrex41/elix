@@ -7,6 +7,8 @@
 # General application configuration
 import Config
 
+config :backend, :workflow_processing_enabled, true
+
 config :backend,
   ecto_repos: [Backend.Repo],
   generators: [timestamp_type: :utc_datetime]
