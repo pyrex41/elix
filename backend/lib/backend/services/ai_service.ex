@@ -27,7 +27,14 @@ defmodule Backend.Services.AiService do
 
       api_key ->
         Logger.info("[AiService] Using xAI API to generate scenes")
-        call_xai_api(assets, campaign_brief, job_type, options, api_key)
+        # For image_pairs, group assets and select best groups
+        case job_type do
+          :image_pairs ->
+            call_xai_api_for_group_selection(assets, campaign_brief, options, api_key)
+
+          _ ->
+            call_xai_api(assets, campaign_brief, job_type, options, api_key)
+        end
     end
   end
 
@@ -59,7 +66,7 @@ defmodule Backend.Services.AiService do
           "content" => prompt
         }
       ],
-      "model" => "grok-beta",
+      "model" => "grok-4-1-fast-non-reasoning",
       "stream" => false,
       "temperature" => 0.7
     }
@@ -67,6 +74,55 @@ defmodule Backend.Services.AiService do
     case Req.post(url, json: body, headers: headers) do
       {:ok, %{status: 200, body: response_body}} ->
         parse_ai_response(response_body, job_type)
+
+      {:ok, %{status: status, body: body}} ->
+        Logger.error("[AiService] xAI API returned status #{status}: #{inspect(body)}")
+        {:error, "API request failed with status #{status}"}
+
+      {:error, exception} ->
+        Logger.error("[AiService] xAI API request failed: #{inspect(exception)}")
+        {:error, Exception.message(exception)}
+    end
+  end
+
+  defp call_xai_api_for_group_selection(assets, campaign_brief, options, api_key) do
+    # Group assets by category
+    grouped_assets = group_assets_by_category(assets)
+    num_pairs = Map.get(options, "num_pairs", Map.get(options, :num_pairs, 4))
+
+    Logger.info(
+      "[AiService] Grouped assets into #{map_size(grouped_assets)} categories, requesting #{num_pairs} selections"
+    )
+
+    # Build prompt asking AI to select groups
+    prompt = build_group_selection_prompt(grouped_assets, campaign_brief, num_pairs)
+
+    url = "https://api.x.ai/v1/chat/completions"
+
+    headers = [
+      {"Authorization", "Bearer #{api_key}"},
+      {"Content-Type", "application/json"}
+    ]
+
+    body = %{
+      "messages" => [
+        %{
+          "role" => "system",
+          "content" => get_group_selection_system_prompt()
+        },
+        %{
+          "role" => "user",
+          "content" => prompt
+        }
+      ],
+      "model" => "grok-4-1-fast-non-reasoning",
+      "stream" => false,
+      "temperature" => 0.7
+    }
+
+    case Req.post(url, json: body, headers: headers) do
+      {:ok, %{status: 200, body: response_body}} ->
+        parse_group_selection_response(response_body, grouped_assets, options)
 
       {:ok, %{status: status, body: body}} ->
         Logger.error("[AiService] xAI API returned status #{status}: #{inspect(body)}")
@@ -283,5 +339,157 @@ defmodule Backend.Services.AiService do
       end)
 
     {:ok, scenes}
+  end
+
+  # Group selection helpers for image_pairs
+
+  defp get_group_selection_system_prompt do
+    """
+    You are a luxury real estate marketing expert. Your task is to select the best room/area groups
+    for a high-end property social media video ad.
+
+    You will be given a list of available room/area groups (Kitchen, Bedroom, Exterior, etc.) with
+    the number of photos available in each group.
+
+    Select the groups that will create the most compelling luxury property showcase for social media.
+    Prioritize variety and visual impact.
+
+    Return ONLY a JSON array of the selected group names, nothing else.
+    Example: ["Showcase", "Exterior 1", "Living Room 1", "Kitchen 1"]
+    """
+  end
+
+  defp build_group_selection_prompt(grouped_assets, campaign_brief, num_pairs) do
+    # Build list of available groups with counts
+    groups_summary =
+      grouped_assets
+      |> Enum.map(fn {group_name, assets} ->
+        "- #{group_name} (#{length(assets)} photos)"
+      end)
+      |> Enum.join("\n")
+
+    """
+    Campaign Brief: #{campaign_brief}
+
+    Available asset groups for this luxury property:
+    #{groups_summary}
+
+    Please select exactly #{num_pairs} groups that would create the best luxury property social media ad.
+    Consider variety, visual appeal, and storytelling flow.
+
+    Return a JSON array with #{num_pairs} group names from the list above.
+    """
+  end
+
+  defp group_assets_by_category(assets) do
+    assets
+    |> Enum.group_by(fn asset ->
+      case asset.metadata do
+        %{"original_name" => name} when is_binary(name) ->
+          extract_group_name(name)
+
+        %{} ->
+          "Uncategorized"
+
+        _ ->
+          "Uncategorized"
+      end
+    end)
+    |> Map.reject(fn {_key, values} -> length(values) < 2 end)
+  end
+
+  defp extract_group_name(asset_name) do
+    # Strip the last number from asset name
+    # "Showcase 1" -> "Showcase"
+    # "Exterior 1 2" -> "Exterior 1"
+    # "Kitchen 1 10" -> "Kitchen 1"
+    asset_name
+    |> String.trim()
+    |> String.split()
+    |> Enum.reverse()
+    |> case do
+      [last | rest] ->
+        # Check if last part is a number
+        case Integer.parse(last) do
+          {_num, ""} -> rest |> Enum.reverse() |> Enum.join(" ")
+          _ -> asset_name
+        end
+
+      _ ->
+        asset_name
+    end
+  end
+
+  defp parse_group_selection_response(response_body, grouped_assets, options) do
+    try do
+      # Extract the content from the AI response
+      content =
+        response_body
+        |> Map.get("choices", [])
+        |> List.first()
+        |> Map.get("message", %{})
+        |> Map.get("content", "")
+
+      Logger.info("[AiService] AI response: #{content}")
+
+      # Extract JSON array from response
+      selected_groups =
+        case Regex.run(~r/\[[\s\S]*?\]/, content) do
+          [json_str] ->
+            case Jason.decode(json_str) do
+              {:ok, groups} when is_list(groups) -> groups
+              _ -> []
+            end
+
+          _ ->
+            []
+        end
+
+      Logger.info("[AiService] Selected groups: #{inspect(selected_groups)}")
+
+      # Build scenes from selected groups
+      clip_duration = Map.get(options, "clip_duration", Map.get(options, :clip_duration, 5))
+
+      scenes =
+        selected_groups
+        |> Enum.with_index(1)
+        |> Enum.flat_map(fn {group_name, index} ->
+          case Map.get(grouped_assets, group_name) do
+            nil ->
+              Logger.warning("[AiService] Group '#{group_name}' not found in assets")
+              []
+
+            group_assets ->
+              # Take first 2 images from this group
+              pair_assets = Enum.take(group_assets, 2)
+
+              if length(pair_assets) >= 2 do
+                [
+                  %{
+                    "title" => "#{group_name} Showcase",
+                    "description" => "Luxury #{group_name} featuring premium finishes and design",
+                    "duration" => clip_duration,
+                    "transition" => "fade",
+                    "group_name" => group_name,
+                    "asset_ids" => Enum.map(pair_assets, & &1.id)
+                  }
+                ]
+              else
+                Logger.warning("[AiService] Group '#{group_name}' has less than 2 images")
+                []
+              end
+          end
+        end)
+
+      if length(scenes) > 0 do
+        {:ok, scenes}
+      else
+        {:error, "No valid scenes generated from selected groups"}
+      end
+    rescue
+      e ->
+        Logger.error("[AiService] Failed to parse group selection response: #{inspect(e)}")
+        {:error, "Failed to parse AI response"}
+    end
   end
 end

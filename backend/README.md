@@ -17,6 +17,9 @@ cp .env.example .env
 Required environment variables:
 - `REPLICATE_API_KEY` - Your Replicate API key (get from https://replicate.com/account/api-tokens)
 - `XAI_API_KEY` - Your XAI API key (get from https://x.ai/api)
+- `PUBLIC_BASE_URL` - Publicly reachable base URL (ngrok in development, Fly URL in prod) so Replicate can fetch first/last-frame assets.
+- `VIDEO_GENERATION_MODEL` - Default Replicate model (`veo3` or `hilua-2.5`) used for rendering; can be overridden per request.
+- `REPLICATE_WEBHOOK_URL` *(optional)* - If you need Replicate to POST status callbacks, point this at a real HTTPS endpoint; leave blank to disable webhooks (recommended until a handler exists).
 
 ### Installation
 

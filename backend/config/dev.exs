@@ -1,9 +1,16 @@
 import Config
 
 # API Keys configuration - loaded from environment variables
+public_base_url = System.get_env("PUBLIC_BASE_URL") || "https://mds.ngrok.dev"
+replicate_webhook_url = System.get_env("REPLICATE_WEBHOOK_URL")
+
 config :backend,
   replicate_api_key: System.get_env("REPLICATE_API_KEY"),
-  xai_api_key: System.get_env("XAI_API_KEY")
+  xai_api_key: System.get_env("XAI_API_KEY"),
+  public_base_url: public_base_url,
+  asset_base_url: public_base_url,
+  replicate_webhook_url: replicate_webhook_url,
+  video_generation_model: System.get_env("VIDEO_GENERATION_MODEL", "veo3")
 
 # Configure your database
 config :backend, Backend.Repo,

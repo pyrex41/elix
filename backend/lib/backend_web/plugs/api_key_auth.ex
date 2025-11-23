@@ -24,22 +24,30 @@ defmodule BackendWeb.Plugs.ApiKeyAuth do
 
       keys ->
         case get_req_header(conn, @header_name) do
-          [provided] when provided in keys ->
-            conn
+          [provided] ->
+            if provided in keys do
+              conn
+            else
+              unauthorized_response(conn)
+            end
 
           _ ->
-            Logger.warning("[ApiKeyAuth] Missing or invalid #{@header_name} header")
-
-            conn
-            |> put_status(:unauthorized)
-            |> put_resp_content_type("application/json")
-            |> send_resp(
-              :unauthorized,
-              Jason.encode!(%{error: "missing or invalid #{@header_name} header"})
-            )
-            |> halt()
+            unauthorized_response(conn)
         end
     end
+  end
+
+  defp unauthorized_response(conn) do
+    Logger.warning("[ApiKeyAuth] Missing or invalid #{@header_name} header")
+
+    conn
+    |> put_status(:unauthorized)
+    |> put_resp_content_type("application/json")
+    |> send_resp(
+      :unauthorized,
+      Jason.encode!(%{error: "missing or invalid #{@header_name} header"})
+    )
+    |> halt()
   end
 
   defp configured_keys do

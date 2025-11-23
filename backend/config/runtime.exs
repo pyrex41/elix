@@ -55,8 +55,16 @@ if config_env() == :prod do
 
   host = System.get_env("PHX_HOST") || "example.com"
   port = String.to_integer(System.get_env("PORT") || "4000")
+  public_base_url = System.get_env("PUBLIC_BASE_URL") || "https://#{host}"
+  replicate_webhook_url = System.get_env("REPLICATE_WEBHOOK_URL")
 
   config :backend, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+
+  config :backend,
+    public_base_url: public_base_url,
+    asset_base_url: public_base_url,
+    video_generation_model: System.get_env("VIDEO_GENERATION_MODEL", "veo3"),
+    replicate_webhook_url: replicate_webhook_url
 
   config :backend, BackendWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],

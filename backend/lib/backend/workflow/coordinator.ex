@@ -123,12 +123,13 @@ defmodule Backend.Workflow.Coordinator do
       |> Repo.all()
 
     # Resume each interrupted job
-    Enum.each(processing_jobs, fn job ->
-      Logger.warning("[Workflow.Coordinator] Resuming interrupted job #{job.id}")
-      resume_job_processing(job)
-    end)
+    new_state =
+      Enum.reduce(processing_jobs, state, fn job, acc ->
+        Logger.warning("[Workflow.Coordinator] Resuming interrupted job #{job.id}")
+        spawn_job_processing(job, acc)
+      end)
 
-    {:noreply, state}
+    {:noreply, new_state}
   end
 
   @impl true
@@ -139,10 +140,34 @@ defmodule Backend.Workflow.Coordinator do
 
   @impl true
   def handle_info({:job_approved, job_id}, state) do
-    Logger.info("[Workflow.Coordinator] Job approved via PubSub: #{job_id}")
-    # Handle approval from PubSub
-    new_state = handle_job_approval(job_id, state)
-    {:noreply, new_state}
+    if Map.has_key?(state.processing_tasks, job_id) do
+      Logger.debug("[Workflow.Coordinator] Job #{job_id} already processing, ignoring broadcast")
+      {:noreply, state}
+    else
+      case Repo.get(Job, job_id) do
+        %Job{status: status} = job when status in [:pending, :approved] ->
+          Logger.info(
+            "[Workflow.Coordinator] Job #{job_id} approved via PubSub, starting processing"
+          )
+
+          new_state = spawn_job_processing(job, state)
+          {:noreply, new_state}
+
+        %Job{status: current_status} ->
+          Logger.debug(
+            "[Workflow.Coordinator] Job #{job_id} not pending (status=#{current_status}), ignoring approval broadcast"
+          )
+
+          {:noreply, state}
+
+        nil ->
+          Logger.error(
+            "[Workflow.Coordinator] Job #{job_id} not found when handling approval broadcast"
+          )
+
+          {:noreply, state}
+      end
+    end
   end
 
   @impl true
@@ -169,12 +194,23 @@ defmodule Backend.Workflow.Coordinator do
         {:noreply, state}
 
       job ->
-        changeset =
-          Job.changeset(job, %{
-            status: :completed,
-            result: result,
-            progress: %{percentage: 100, stage: "completed"}
-          })
+        # Don't overwrite the result field if it's already set (e.g., by StitchWorker)
+        # Only update it if it's currently nil
+        updates =
+          if is_nil(job.result) do
+            %{
+              status: :completed,
+              result: result,
+              progress: %{percentage: 100, stage: "completed"}
+            }
+          else
+            %{
+              status: :completed,
+              progress: %{percentage: 100, stage: "completed"}
+            }
+          end
+
+        changeset = Job.changeset(job, updates)
 
         case Repo.update(changeset) do
           {:ok, _updated_job} ->
@@ -449,6 +485,13 @@ defmodule Backend.Workflow.Coordinator do
         Logger.error("[Workflow.Coordinator] Job #{job_id} not found")
         state
 
+      %Job{status: status} when status in [:processing, :completed, :failed] ->
+        Logger.warning(
+          "[Workflow.Coordinator] Ignoring approval for job #{job_id} already #{status}"
+        )
+
+        state
+
       job ->
         # Update job status to approved atomically
         changeset =
@@ -493,19 +536,11 @@ defmodule Backend.Workflow.Coordinator do
 
     case Repo.update(changeset) do
       {:ok, _updated_job} ->
-        # Spawn async task for job processing
-        task = Task.async(fn -> process_job(job) end)
+        worker_pid = start_processing_task(job)
 
-        # Track the task and job
-        new_state =
-          state
-          |> Map.update!(:active_jobs, &Map.put(&1, job.id, job))
-          |> Map.update!(:processing_tasks, &Map.put(&1, job.id, task))
-
-        # Monitor the task
-        spawn_task_monitor(task, job.id)
-
-        new_state
+        state
+        |> Map.update!(:active_jobs, &Map.put(&1, job.id, job))
+        |> Map.update!(:processing_tasks, &Map.put(&1, job.id, worker_pid))
 
       {:error, changeset} ->
         Logger.error(
@@ -516,39 +551,37 @@ defmodule Backend.Workflow.Coordinator do
     end
   end
 
-  defp resume_job_processing(job) do
-    Logger.info("[Workflow.Coordinator] Resuming job #{job.id}")
-
-    # Reset progress and continue processing
-    changeset =
-      Job.changeset(job, %{
-        progress: %{percentage: 5, stage: "resuming"}
-      })
-
-    case Repo.update(changeset) do
-      {:ok, updated_job} ->
-        # Spawn async task for job processing
-        Task.start(fn -> process_job(updated_job) end)
-
-      {:error, changeset} ->
-        Logger.error(
-          "[Workflow.Coordinator] Failed to resume job #{job.id}: #{inspect(changeset.errors)}"
-        )
-    end
-  end
-
-  defp spawn_task_monitor(task, job_id) do
+  defp start_processing_task(job) do
     parent = self()
 
-    spawn(fn ->
-      case Task.await(task, :infinity) do
-        {:ok, result} ->
-          send(parent, {:task_completed, job_id, result})
+    {:ok, pid} =
+      Task.start(fn ->
+        result =
+          try do
+            process_job(job)
+          rescue
+            exception ->
+              Logger.error(
+                "[Workflow.Coordinator] Processing crashed for job #{job.id}: #{Exception.message(exception)}"
+              )
 
-        {:error, reason} ->
-          send(parent, {:task_failed, job_id, reason})
-      end
-    end)
+              {:error, exception}
+          catch
+            kind, reason ->
+              Logger.error(
+                "[Workflow.Coordinator] Processing crash (#{inspect(kind)}) for job #{job.id}: #{inspect(reason)}"
+              )
+
+              {:error, reason}
+          end
+
+        case result do
+          {:ok, res} -> send(parent, {:task_completed, job.id, res})
+          {:error, reason} -> send(parent, {:task_failed, job.id, reason})
+        end
+      end)
+
+    pid
   end
 
   defp process_job(job) do

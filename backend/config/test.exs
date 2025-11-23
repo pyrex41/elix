@@ -22,3 +22,9 @@ config :logger, level: :warning
 
 # Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
+
+config :backend,
+  public_base_url: "http://localhost:4002",
+  asset_base_url: "http://localhost:4002",
+  video_generation_model: "veo3",
+  replicate_webhook_url: nil

@@ -169,7 +169,8 @@ defmodule BackendWeb.Api.V3.AssetController do
               {ok_acc, [%{source: normalized["source_url"], error: reason} | error_acc]}
 
             {:error, reason} ->
-              {ok_acc, [%{source: normalized["source_url"], error: to_string(reason)} | error_acc]}
+              {ok_acc,
+               [%{source: normalized["source_url"], error: to_string(reason)} | error_acc]}
           end
         end)
 
@@ -287,15 +288,23 @@ defmodule BackendWeb.Api.V3.AssetController do
         |> json(%{error: "Asset not found"})
 
       asset ->
-        content_type = determine_content_type(asset)
+        case load_asset_body(asset) do
+          {:ok, body, content_type} ->
+            conn
+            |> put_resp_content_type(content_type)
+            |> put_resp_header(
+              "content-disposition",
+              ~s(inline; filename="#{asset.id}.#{extension_for_type(asset.type)}")
+            )
+            |> send_resp(200, body)
 
-        conn
-        |> put_resp_content_type(content_type)
-        |> put_resp_header(
-          "content-disposition",
-          ~s(inline; filename="#{asset.id}.#{extension_for_type(asset.type)}")
-        )
-        |> send_resp(200, asset.blob_data)
+          {:error, reason} ->
+            Logger.error("Failed to load asset #{asset.id} body: #{inspect(reason)}")
+
+            conn
+            |> put_status(:bad_gateway)
+            |> json(%{error: "Asset blob unavailable"})
+        end
     end
   rescue
     e ->
@@ -397,7 +406,9 @@ defmodule BackendWeb.Api.V3.AssetController do
   defp maybe_filter(query, :type, value) do
     normalized =
       case value do
-        v when is_atom(v) -> v
+        v when is_atom(v) ->
+          v
+
         v when is_binary(v) ->
           case String.downcase(v) do
             "image" -> :image
@@ -435,10 +446,11 @@ defmodule BackendWeb.Api.V3.AssetController do
 
   defp load_thumbnail_blob(%Asset{metadata: metadata} = asset) do
     metadata = metadata || %{}
+    thumbnail_path = metadata["thumbnail_path"]
 
     cond do
-      path = metadata["thumbnail_path"] and is_binary(path) and File.exists?(path) ->
-        File.read(path)
+      is_binary(thumbnail_path) and File.exists?(thumbnail_path) ->
+        File.read(thumbnail_path)
 
       asset.type in [:image, "image"] and is_binary(asset.blob_data) ->
         {:ok, asset.blob_data}
@@ -612,10 +624,39 @@ defmodule BackendWeb.Api.V3.AssetController do
     |> Repo.insert()
   end
 
-  defp get_asset_with_blob(id) do
-    # For large blobs, we could use Repo.stream, but for simplicity, we'll fetch directly
-    # In production, consider streaming for very large files
-    Repo.get(Asset, id)
+  defp get_asset_with_blob(id), do: Repo.get(Asset, id)
+
+  defp load_asset_body(%Asset{blob_data: data} = asset) when is_binary(data) do
+    {:ok, data, determine_content_type(asset)}
+  end
+
+  defp load_asset_body(%Asset{source_url: url} = asset)
+       when is_binary(url) and url != "" do
+    fetch_remote_asset(url, asset)
+  end
+
+  defp load_asset_body(_), do: {:error, :no_blob_available}
+
+  defp fetch_remote_asset(url, asset) do
+    if String.starts_with?(url, ["http://", "https://"]) do
+      case Req.get(url, redirect: :follow, max_redirects: 3, receive_timeout: 30_000) do
+        {:ok, %{status: status, body: body, headers: headers}} when status in 200..299 ->
+          content_type =
+            headers
+            |> Enum.into(%{}, fn {k, v} -> {String.downcase(k), v} end)
+            |> Map.get("content-type", determine_content_type(asset))
+
+          {:ok, body, content_type}
+
+        {:ok, %{status: status}} ->
+          {:error, {:remote_status, status}}
+
+        {:error, reason} ->
+          {:error, {:remote_fetch_failed, reason}}
+      end
+    else
+      {:error, :unsupported_source_url}
+    end
   end
 
   defp determine_content_type(%{type: :image}), do: "image/jpeg"

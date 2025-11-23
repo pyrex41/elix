@@ -79,6 +79,8 @@ defmodule BackendWeb.Router do
       get "/assets/:id/data", AssetController, :data
       get "/assets/:id/thumbnail", AssetController, :thumbnail
     end
+
+    post "/webhooks/replicate", Api.V3.WebhookController, :replicate
   end
 
   # Enable LiveDashboard in development

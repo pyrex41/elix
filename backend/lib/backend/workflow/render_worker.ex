@@ -11,7 +11,7 @@ defmodule Backend.Workflow.RenderWorker do
   """
   require Logger
   alias Backend.Repo
-  alias Backend.Schemas.{Job, SubJob}
+  alias Backend.Schemas.{Asset, Job, SubJob}
   alias Backend.Services.ReplicateService
   import Ecto.Query
 
@@ -83,30 +83,20 @@ defmodule Backend.Workflow.RenderWorker do
     # Update status to processing
     {:ok, sub_job} = update_sub_job_status(sub_job, :processing)
 
-    # Get scene data from job's storyboard
-    scene = get_scene_for_sub_job(sub_job)
-
-    if scene == nil do
-      Logger.error("[RenderWorker] No scene data found for sub_job #{sub_job.id}")
-      update_sub_job_status(sub_job, :failed)
-      {:error, :no_scene_data}
+    with {:ok, context} <- load_scene_context(sub_job),
+         {:ok, render_request} <- build_render_request(context),
+         {:ok, prediction} <- start_rendering(render_request, options),
+         {:ok, sub_job} <- ensure_provider_id(sub_job, prediction),
+         {:ok, completed_prediction} <- poll_for_completion(prediction, options),
+         {:ok, updated_sub_job} <- complete_prediction(sub_job, completed_prediction) do
+      Logger.info("[RenderWorker] Successfully processed sub_job #{sub_job.id}")
+      {:ok, updated_sub_job}
     else
-      # Execute rendering pipeline
-      with {:ok, prediction} <- start_rendering(scene, options),
-           {:ok, completed_prediction} <- poll_for_completion(prediction, options),
-           {:ok, video_blob} <- download_video(completed_prediction),
-           {:ok, updated_sub_job} <- store_video_blob(sub_job, video_blob, prediction["id"]) do
-        Logger.info("[RenderWorker] Successfully processed sub_job #{sub_job.id}")
-        {:ok, updated_sub_job}
-      else
-        {:error, reason} = error ->
-          Logger.error(
-            "[RenderWorker] Failed to process sub_job #{sub_job.id}: #{inspect(reason)}"
-          )
+      {:error, reason} = error ->
+        Logger.error("[RenderWorker] Failed to process sub_job #{sub_job.id}: #{inspect(reason)}")
 
-          update_sub_job_status(sub_job, :failed)
-          error
-      end
+        update_sub_job_status(sub_job, :failed)
+        error
     end
   end
 
@@ -202,33 +192,261 @@ defmodule Backend.Workflow.RenderWorker do
     end
   end
 
-  defp get_scene_for_sub_job(sub_job) do
-    # Load the job to get storyboard
+  defp load_scene_context(sub_job) do
     case Repo.get(Job, sub_job.job_id) do
       nil ->
-        Logger.error("[RenderWorker] Job #{sub_job.job_id} not found")
-        nil
+        Logger.error("[RenderWorker] Job #{sub_job.job_id} not found for sub_job #{sub_job.id}")
+        {:error, :job_not_found}
 
-      job ->
-        # Extract scene data from storyboard
-        # The storyboard should contain scenes array
+      %Job{storyboard: nil} ->
+        Logger.error("[RenderWorker] Job #{sub_job.job_id} has no storyboard data")
+        {:error, :no_storyboard}
+
+      %Job{} = job ->
         scenes = get_in(job.storyboard, ["scenes"]) || []
-
-        # Find the scene for this sub_job (by index or ID)
-        # For now, we'll use the position of the sub_job
-        # You may need to adjust this based on your actual data structure
         sub_job_index = get_sub_job_index(job.id, sub_job.id)
 
-        if sub_job_index != nil and sub_job_index < length(scenes) do
-          Enum.at(scenes, sub_job_index)
-        else
-          Logger.warning(
-            "[RenderWorker] Could not find scene for sub_job #{sub_job.id} at index #{sub_job_index}"
-          )
+        cond do
+          scenes == [] ->
+            Logger.error("[RenderWorker] Job #{job.id} storyboard has no scenes")
+            {:error, :no_scenes}
 
-          nil
+          is_nil(sub_job_index) ->
+            Logger.error(
+              "[RenderWorker] Could not determine scene index for sub_job #{sub_job.id}"
+            )
+
+            {:error, :scene_index_not_found}
+
+          true ->
+            case Enum.fetch(scenes, sub_job_index) do
+              {:ok, scene} when is_map(scene) ->
+                {:ok,
+                 %{
+                   job: job,
+                   scene: scene,
+                   scene_index: sub_job_index,
+                   params: normalize_param_keys(job.parameters || %{})
+                 }}
+
+              _ ->
+                Logger.error(
+                  "[RenderWorker] Scene not found at index #{sub_job_index} for job #{job.id}"
+                )
+
+                {:error, :scene_not_found}
+            end
         end
     end
+  end
+
+  defp build_render_request(%{job: job, scene: scene, scene_index: index, params: params}) do
+    with {:ok, asset_ctx} <- resolve_scene_assets(scene, job, params) do
+      base_url = external_base_url()
+      Logger.info("[RenderWorker] Using base URL: #{base_url}")
+      first_url = build_asset_url(base_url, asset_ctx.first.id)
+      last_url = build_asset_url(base_url, asset_ctx.last.id)
+      Logger.info("[RenderWorker] Image URLs - first: #{first_url}, last: #{last_url}")
+
+      model =
+        scene["model"] ||
+          scene[:model] ||
+          params["video_model"] ||
+          params["video_generation_model"] ||
+          Application.get_env(:backend, :video_generation_model, "veo3")
+
+      normalized_model =
+        model
+        |> to_string()
+        |> String.downcase()
+
+      render_request = %{
+        model: normalized_model,
+        prompt: scene_prompt(scene),
+        duration: scene_duration(scene, params),
+        aspect_ratio: scene_aspect_ratio(scene, params),
+        first_image_url: first_url,
+        last_image_url: last_url,
+        metadata: %{
+          title: scene["title"] || scene[:title],
+          text_overlay: scene["text_overlay"] || scene[:text_overlay],
+          scene_index: index,
+          asset_ids: asset_ctx.ordered_ids,
+          fallback_assets: Map.get(asset_ctx, :fallback?, false)
+        }
+      }
+
+      {:ok, render_request}
+    end
+  end
+
+  defp resolve_scene_assets(scene, job, params) do
+    asset_ids = normalize_scene_asset_ids(scene)
+
+    cond do
+      asset_ids != [] ->
+        assets =
+          Asset
+          |> where([a], a.id in ^asset_ids)
+          |> Repo.all()
+
+        asset_map = Map.new(assets, &{&1.id, &1})
+        first_id = hd(asset_ids)
+        last_id = List.last(asset_ids)
+
+        with %Asset{} = first <- Map.get(asset_map, first_id),
+             %Asset{} = last <- Map.get(asset_map, last_id) do
+          {:ok,
+           %{
+             first: first,
+             last: last,
+             ordered_ids: asset_ids
+           }}
+        else
+          _ ->
+            Logger.error(
+              "[RenderWorker] Asset references #{inspect(asset_ids)} missing for job #{job.id}"
+            )
+
+            {:error, :assets_not_found}
+        end
+
+      true ->
+        load_fallback_assets(job, params)
+    end
+  end
+
+  defp normalize_scene_asset_ids(scene) when is_map(scene) do
+    cond do
+      ids = Map.get(scene, "asset_ids") -> Enum.filter(ids || [], &is_binary/1)
+      ids = Map.get(scene, :asset_ids) -> Enum.filter(ids || [], &is_binary/1)
+      id = Map.get(scene, "asset_id") -> [id]
+      id = Map.get(scene, :asset_id) -> [id]
+      true -> []
+    end
+  end
+
+  defp normalize_scene_asset_ids(_), do: []
+
+  defp load_fallback_assets(job, params) do
+    campaign_id =
+      params["campaign_id"] ||
+        params["campaignId"] ||
+        params["client_campaign_id"]
+
+    if is_binary(campaign_id) do
+      assets =
+        Asset
+        |> where([a], a.campaign_id == ^campaign_id and a.type == ^:image)
+        |> order_by([a], asc: a.inserted_at)
+        |> limit(2)
+        |> Repo.all()
+
+      case assets do
+        [] ->
+          Logger.error(
+            "[RenderWorker] No fallback assets found for campaign #{campaign_id} (job #{job.id})"
+          )
+
+          {:error, :fallback_assets_not_found}
+
+        [single] ->
+          {:ok,
+           %{
+             first: single,
+             last: single,
+             ordered_ids: [single.id],
+             fallback?: true
+           }}
+
+        [_ | _] = list ->
+          first = hd(list)
+          last = List.last(list)
+
+          {:ok,
+           %{
+             first: first,
+             last: last,
+             ordered_ids: Enum.map(list, & &1.id),
+             fallback?: true
+           }}
+      end
+    else
+      Logger.error(
+        "[RenderWorker] Scene is missing asset references and campaign_id could not be determined"
+      )
+
+      {:error, :missing_asset_ids}
+    end
+  end
+
+  defp external_base_url do
+    Application.get_env(:backend, :asset_base_url) ||
+      Application.get_env(:backend, :public_base_url) ||
+      BackendWeb.Endpoint.url()
+  end
+
+  defp build_asset_url(base, asset_id) do
+    base
+    |> String.trim_trailing("/")
+    |> Kernel.<>("/api/v3/assets/#{asset_id}/data")
+  end
+
+  defp normalize_param_keys(params) when is_map(params) do
+    Enum.reduce(params, %{}, fn
+      {key, value}, acc when is_atom(key) ->
+        Map.put(acc, Atom.to_string(key), value)
+
+      {key, value}, acc when is_binary(key) ->
+        Map.put(acc, key, value)
+
+      {key, value}, acc ->
+        Map.put(acc, to_string(key), value)
+    end)
+  end
+
+  defp normalize_param_keys(_), do: %{}
+
+  defp scene_prompt(scene) do
+    scene["prompt"] ||
+      scene[:prompt] ||
+      scene["description"] ||
+      scene[:description] ||
+      scene["title"] ||
+      scene[:title] ||
+      "Smooth cinematic transition between key frames"
+  end
+
+  defp scene_duration(scene, params) do
+    duration =
+      scene["duration"] ||
+        scene[:duration] ||
+        params["clip_duration"] ||
+        6
+
+    cond do
+      is_integer(duration) ->
+        duration
+
+      is_float(duration) ->
+        duration
+
+      is_binary(duration) ->
+        case Float.parse(duration) do
+          {value, _} -> value
+          :error -> 6
+        end
+
+      true ->
+        6
+    end
+  end
+
+  defp scene_aspect_ratio(scene, params) do
+    scene["aspect_ratio"] ||
+      scene[:aspect_ratio] ||
+      params["aspect_ratio"] ||
+      "16:9"
   end
 
   defp get_sub_job_index(job_id, sub_job_id) do
@@ -242,10 +460,12 @@ defmodule Backend.Workflow.RenderWorker do
     Enum.find_index(sub_jobs, fn sj -> sj.id == sub_job_id end)
   end
 
-  defp start_rendering(scene, options) do
-    Logger.info("[RenderWorker] Starting render for scene")
+  defp start_rendering(render_request, options) do
+    Logger.info(
+      "[RenderWorker] Starting render for scene #{render_request.metadata[:scene_index]} using model #{render_request.model}"
+    )
 
-    case ReplicateService.start_render(scene, options) do
+    case ReplicateService.start_render(render_request, options) do
       {:ok, prediction} ->
         {:ok, prediction}
 
@@ -275,6 +495,40 @@ defmodule Backend.Workflow.RenderWorker do
         )
 
         {:error, {:polling_failed, reason}}
+    end
+  end
+
+  defp ensure_provider_id(sub_job, prediction) do
+    prediction_id = prediction_id(prediction)
+
+    cond do
+      is_nil(prediction_id) ->
+        {:ok, sub_job}
+
+      sub_job.provider_id == prediction_id ->
+        {:ok, sub_job}
+
+      true ->
+        case SubJob.changeset(sub_job, %{provider_id: prediction_id}) |> Repo.update() do
+          {:ok, updated} ->
+            {:ok, updated}
+
+          {:error, changeset} ->
+            Logger.error(
+              "[RenderWorker] Failed to persist provider id for sub_job #{sub_job.id}: #{inspect(changeset.errors)}"
+            )
+
+            {:error, :provider_update_failed}
+        end
+    end
+  end
+
+  def complete_prediction(sub_job, prediction) do
+    with {:ok, _} <- ensure_provider_id(sub_job, prediction),
+         {:ok, video_blob} <- download_video(prediction),
+         {:ok, updated_sub_job} <-
+           store_video_blob(sub_job, video_blob, prediction_id(prediction)) do
+      {:ok, updated_sub_job}
     end
   end
 
@@ -345,5 +599,13 @@ defmodule Backend.Workflow.RenderWorker do
         Logger.error("[RenderWorker] Failed to store video blob: #{inspect(changeset.errors)}")
         {:error, :storage_failed}
     end
+  end
+
+  defp prediction_id(prediction) when is_map(prediction) do
+    Map.get(prediction, "id") || Map.get(prediction, :id)
+  end
+
+  defp prediction_id(prediction) when is_struct(prediction) do
+    Map.get(prediction, :id)
   end
 end

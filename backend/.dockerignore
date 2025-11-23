@@ -1,0 +1,20 @@
+# Build artifacts
+/_build
+/deps
+/cover
+/tmp
+
+# Local databases and data files
+/*.db
+/*.db-shm
+/*.db-wal
+/data
+
+# Dev/test-only sources
+/test
+/log_docs
+/TASK_*
+
+# Environment/secret files
+/.env*
+/.git

@@ -235,9 +235,10 @@ defmodule BackendWeb.Api.V3.CampaignController do
     alias Backend.Schemas.Job
 
     # Use property_photos as the type since Job only accepts :image_pairs or :property_photos
-    job_type = if params["type"] in ["image_pairs", "property_photos"],
-               do: String.to_existing_atom(params["type"]),
-               else: :property_photos
+    job_type =
+      if params["type"] in ["image_pairs", "property_photos"],
+        do: String.to_existing_atom(params["type"]),
+        else: :property_photos
 
     changeset =
       Job.changeset(%Job{}, %{
