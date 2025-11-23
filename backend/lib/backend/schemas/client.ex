@@ -7,6 +7,9 @@ defmodule Backend.Schemas.Client do
 
   schema "clients" do
     field :name, :string
+    field :description, :string
+    field :homepage, :string
+    field :metadata, :map
     field :brand_guidelines, :string
 
     has_many :campaigns, Backend.Schemas.Campaign
@@ -20,7 +23,7 @@ defmodule Backend.Schemas.Client do
   """
   def changeset(client, attrs) do
     client
-    |> cast(attrs, [:name, :brand_guidelines])
+    |> cast(attrs, [:name, :description, :homepage, :metadata, :brand_guidelines])
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 255)
   end

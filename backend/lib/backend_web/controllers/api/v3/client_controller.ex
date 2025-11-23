@@ -131,6 +131,9 @@ defmodule BackendWeb.Api.V3.ClientController do
     %{
       id: client.id,
       name: client.name,
+      description: client.description,
+      homepage: client.homepage,
+      metadata: client.metadata,
       brand_guidelines: client.brand_guidelines,
       inserted_at: client.inserted_at,
       updated_at: client.updated_at
