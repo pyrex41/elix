@@ -298,6 +298,8 @@ defmodule BackendWeb.Api.V3.AssetController do
       asset ->
         case load_asset_body(asset) do
           {:ok, body, content_type} ->
+            content_type = normalize_content_type(content_type, asset)
+
             conn
             |> put_resp_content_type(content_type)
             |> put_resp_header(
@@ -776,9 +778,9 @@ defmodule BackendWeb.Api.V3.AssetController do
           content_type =
             headers
             |> Enum.into(%{}, fn {k, v} -> {String.downcase(k), v} end)
-            |> Map.get("content-type", determine_content_type(asset))
+            |> Map.get("content-type")
 
-          {:ok, body, content_type}
+          {:ok, body, normalize_content_type(content_type, asset)}
 
         {:ok, %{status: status}} ->
           {:error, {:remote_status, status}}
@@ -798,6 +800,15 @@ defmodule BackendWeb.Api.V3.AssetController do
   defp determine_content_type(%{type: "video"}), do: "video/mp4"
   defp determine_content_type(%{type: "audio"}), do: "audio/mpeg"
   defp determine_content_type(_), do: "application/octet-stream"
+
+  defp normalize_content_type(nil, asset), do: determine_content_type(asset)
+  defp normalize_content_type("", asset), do: determine_content_type(asset)
+
+  defp normalize_content_type(content_type, _asset) when is_binary(content_type) do
+    content_type
+  end
+
+  defp normalize_content_type(_value, asset), do: determine_content_type(asset)
 
   defp extension_for_type(:image), do: "jpg"
   defp extension_for_type(:video), do: "mp4"

@@ -35,6 +35,60 @@ This project uses SQLite3 with WAL (Write-Ahead Logging) mode for better concurr
 - Test DB: `backend_test.db`
 - Production DB: Configured via `DATABASE_PATH` environment variable
 
+## End-to-End Video Pipeline
+
+The pipeline mirrors the legacy Python service so the frontend can talk to the same set of endpoints:
+
+1. **Create the Job**
+   - From a campaign: `POST /api/v3/campaigns/:id/create-job`
+   - Directly from assets: `POST /api/v3/jobs/from-image-pairs` or `/api/v3/jobs/from-property-photos`
+   - The response contains `job_id`, `status: "pending"`, and generated storyboard data you can display before rendering.
+
+2. **Approval Gate (required)**
+   - Jobs stay in `pending` until the frontend (or an automated reviewer) explicitly approves them.
+   - Call `POST /api/v3/jobs/:id/approve` to kick off rendering. If you call it twice or try to approve a job that already moved on, you’ll get a `422`.
+
+3. **Rendering + Scene Processing**
+   - After approval the `Coordinator` spins up sub-jobs, chooses the Replicate model (`veo3` or `hilua-2.5`/`hailuo-02`), and hands each scene to the `RenderWorker`.
+   - Assets referenced in the storyboard are served via `/api/v3/assets/:asset_id/data`. Replicate uses those URLs (first/last frame) to render transitions; no auth header is required on that endpoint.
+   - Webhook callbacks (if `REPLICATE_WEBHOOK_URL` is set) land at `POST /api/webhooks/replicate` and update sub-job state; otherwise the worker polls Replicate until completion.
+
+4. **Progress + Status Updates**
+   - Poll `GET /api/v3/jobs/:id` for high-level status. The payload includes `status`, `progress_percentage`, `current_stage`, the original `parameters`, and the storyboard.
+   - If you need per-scene detail, call `GET /api/v3/jobs/:job_id/scenes` to see each scene’s status and rendered clip metadata.
+   - `progress.stage` values move through `pending → starting_render → waiting_prediction → downloading_video → stitching → completed/failed`, matching what you’ll see in the logs.
+
+5. **Downloading Results**
+   - Combined video: `GET /api/v3/videos/:job_id/combined` (binary MP4). This endpoint streams the stitched output once the job hits `completed`.
+   - Thumbnail preview: `GET /api/v3/videos/:job_id/thumbnail`
+   - Individual clips: `GET /api/v3/videos/:job_id/clips/:filename` (and `/thumbnail` if you need per-clip stills).
+
+6. **Frontend Checklist**
+   - Capture the `job_id` returned from the creation call.
+   - Surface the storyboard and assets for a human review, then call `/jobs/:id/approve` when ready.
+   - Poll `/jobs/:id` (or subscribe to webhooks if desired) until `status` becomes `completed`, then download from `/videos/:job_id/combined`.
+   - On failure, the job payload’s `progress.error` field is populated; the frontend can retry by creating a new job with the same assets.
+
+All endpoints are documented in `GET /api/openapi` for quick reference, and the response shapes intentionally match the previous Python implementation (camelCase fields for campaign/asset payloads).
+
+## Utility Scripts
+
+### Asset Blob Backfill
+Production assets imported from Wander only store `source_url`s by default. If you need every asset persisted in SQLite (e.g., to avoid future CDN changes), run the bundled task inside the release:
+
+```bash
+# SSH into the Fly machine, then
+cd /app
+bin/backend eval "Backend.Tasks.AssetBackfill.run()"
+```
+
+Optional arguments:
+
+- `limit: n` – only processes the first `n` assets (helpful for dry runs).
+- `sleep_ms: 200` – inserts a delay between downloads to avoid hammering the source CDN.
+
+The task logs each asset, downloads the bytes via `Req`, and updates `blob_data` along with metadata such as `blob_backfilled_at` and `blob_size_bytes`.
+
 ## Dependencies
 
 Key dependencies:
