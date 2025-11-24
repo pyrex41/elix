@@ -7,6 +7,9 @@ defmodule Backend.Application do
 
   @impl true
   def start(_type, _args) do
+    # Initialize ETS table for temporary audio storage (for Replicate continuation)
+    :ets.new(:temp_audio_store, [:named_table, :public, :set])
+    
     children = [
       BackendWeb.Telemetry,
       Backend.Repo,

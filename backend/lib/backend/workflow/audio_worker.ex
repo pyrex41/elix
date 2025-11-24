@@ -8,6 +8,7 @@ defmodule Backend.Workflow.AudioWorker do
   require Logger
 
   alias Backend.Services.MusicgenService
+  alias Backend.Services.ElevenlabsMusicService
   alias Backend.Repo
   alias Backend.Schemas.Job
 
@@ -21,13 +22,15 @@ defmodule Backend.Workflow.AudioWorker do
       - sync_mode: How to sync final audio with video (:trim, :stretch, :compress)
       - default_duration: Default duration per scene in seconds (default: 4.0)
       - use_unified_generation: Use single continuous generation vs per-scene (default: true)
+      - provider: Music provider - "musicgen" or "elevenlabs" (default: "musicgen")
 
   ## Returns
     - {:ok, job} with updated audio_blob on success
     - {:error, reason} on failure
   """
   def generate_job_audio(job_id, audio_params \\ %{}) do
-    Logger.info("[AudioWorker] Starting audio generation for job #{job_id}")
+    provider = Map.get(audio_params, :provider, "musicgen")
+    Logger.info("[AudioWorker] Starting audio generation for job #{job_id} with provider: #{provider}")
 
     # Load job with scenes from storyboard
     case load_job_with_scenes(job_id) do
@@ -38,10 +41,10 @@ defmodule Backend.Workflow.AudioWorker do
         generation_result =
           if use_unified do
             # New unified approach: generate all scenes at once with continuation
-            generate_unified_audio(scenes, audio_params)
+            generate_unified_audio(scenes, audio_params, provider)
           else
             # Legacy approach: process scenes one by one
-            process_scenes_sequentially(scenes, audio_params)
+            process_scenes_sequentially(scenes, audio_params, provider)
           end
 
         case generation_result do
@@ -77,21 +80,28 @@ defmodule Backend.Workflow.AudioWorker do
   ## Parameters
     - scene: Scene map with description and parameters
     - options: Audio generation options
+    - provider: Music provider - "musicgen" or "elevenlabs" (default: "musicgen")
 
   ## Returns
     - {:ok, audio_result} with audio_blob and continuation_token
     - {:error, reason} on failure
   """
-  def generate_scene_audio(scene, options \\ %{}) do
-    MusicgenService.generate_scene_audio(scene, options)
+  def generate_scene_audio(scene, options \\ %{}, provider \\ "musicgen") do
+    case provider do
+      "elevenlabs" ->
+        ElevenlabsMusicService.generate_scene_audio(scene, options)
+
+      _ ->
+        MusicgenService.generate_scene_audio(scene, options)
+    end
   end
 
   # Private functions
 
-  defp generate_unified_audio(scenes, audio_params) do
-    Logger.info("[AudioWorker] Using unified music generation for #{length(scenes)} scenes")
+  defp generate_unified_audio(scenes, audio_params, provider) do
+    Logger.info("[AudioWorker] Using unified music generation for #{length(scenes)} scenes with provider: #{provider}")
 
-    # Use the new unified generation function from MusicgenService
+    # Use the unified generation function from the selected service
     default_duration = Map.get(audio_params, :default_duration, 4.0)
     fade_duration = Map.get(audio_params, :fade_duration, 1.5)
 
@@ -101,7 +111,13 @@ defmodule Backend.Workflow.AudioWorker do
       base_style: "luxury real estate showcase"
     }
 
-    MusicgenService.generate_music_for_scenes(scenes, options)
+    case provider do
+      "elevenlabs" ->
+        ElevenlabsMusicService.generate_music_for_scenes(scenes, options)
+
+      _ ->
+        MusicgenService.generate_music_for_scenes(scenes, options)
+    end
   end
 
   defp load_job_with_scenes(job_id) do
@@ -140,8 +156,8 @@ defmodule Backend.Workflow.AudioWorker do
     end
   end
 
-  defp process_scenes_sequentially(scenes, audio_params) do
-    Logger.info("[AudioWorker] Processing #{length(scenes)} scenes sequentially")
+  defp process_scenes_sequentially(scenes, audio_params, provider) do
+    Logger.info("[AudioWorker] Processing #{length(scenes)} scenes sequentially with provider: #{provider}")
 
     initial_state = %{
       segments: [],
@@ -163,7 +179,7 @@ defmodule Backend.Workflow.AudioWorker do
         #   status: "generating_audio"
         # }
 
-        case generate_audio_for_scene(scene, state.previous_result, audio_params) do
+        case generate_audio_for_scene(scene, state.previous_result, audio_params, provider) do
           {:ok, audio_result} ->
             # Accumulate audio segment
             updated_state = %{
@@ -216,7 +232,7 @@ defmodule Backend.Workflow.AudioWorker do
     end
   end
 
-  defp generate_audio_for_scene(scene, previous_result, audio_params) do
+  defp generate_audio_for_scene(scene, previous_result, audio_params, provider) do
     default_duration = Map.get(audio_params, :default_duration, 4.0)
 
     options = %{
@@ -224,22 +240,27 @@ defmodule Backend.Workflow.AudioWorker do
       prompt: build_scene_prompt(scene, audio_params)
     }
 
+    service = case provider do
+      "elevenlabs" -> ElevenlabsMusicService
+      _ -> MusicgenService
+    end
+
     case previous_result do
       nil ->
         # First scene, no continuation
-        MusicgenService.generate_scene_audio(scene, options)
+        service.generate_scene_audio(scene, options)
 
       %{continuation_token: nil} ->
         # Previous scene had no continuation token
-        MusicgenService.generate_scene_audio(scene, options)
+        service.generate_scene_audio(scene, options)
 
       %{continuation_token: token} when is_binary(token) ->
         # Use continuation from previous scene
-        MusicgenService.generate_with_continuation(scene, previous_result, options)
+        service.generate_with_continuation(scene, previous_result, options)
 
       _ ->
         # Fallback to no continuation
-        MusicgenService.generate_scene_audio(scene, options)
+        service.generate_scene_audio(scene, options)
     end
   end
 
@@ -327,6 +348,7 @@ defmodule Backend.Workflow.AudioWorker do
   defp generate_silence_segment(scene) do
     duration = scene["duration"] || 4.0
 
+    # Use MusicgenService for silence generation (it has the fallback)
     case MusicgenService.generate_scene_audio(scene, %{duration: duration}) do
       {:ok, result} ->
         result
@@ -352,8 +374,14 @@ defmodule Backend.Workflow.AudioWorker do
 
       segments ->
         fade_duration = Map.get(audio_params, :fade_duration, 1.0)
+        provider = Map.get(audio_params, :provider, "musicgen")
 
-        case MusicgenService.merge_audio_segments(segments, fade_duration) do
+        service = case provider do
+          "elevenlabs" -> ElevenlabsMusicService
+          _ -> MusicgenService
+        end
+
+        case service.merge_audio_segments(segments, fade_duration) do
           {:ok, merged_audio} ->
             # Optionally merge with video if job has result
             finalize_with_video(job, merged_audio, audio_params)
@@ -379,7 +407,8 @@ defmodule Backend.Workflow.AudioWorker do
         if merge_option do
           Logger.info("[AudioWorker] Merging audio with video")
           sync_mode = Map.get(audio_params, :sync_mode, :trim)
-
+          # Both services use the same merge_audio_with_video function signature
+          # Use MusicgenService for merging (it has the implementation)
           case MusicgenService.merge_audio_with_video(video_blob, audio_blob, %{
                  sync_mode: sync_mode
                }) do

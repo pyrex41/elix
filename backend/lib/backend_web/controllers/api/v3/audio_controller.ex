@@ -25,6 +25,7 @@ defmodule BackendWeb.Api.V3.AudioController do
       - merge_with_video: Whether to merge audio with existing video (default: false)
       - error_strategy: How to handle errors - "continue_with_silence" or "halt" (default: "continue_with_silence")
       - prompt: Custom music generation prompt (optional)
+      - provider: Music provider - "musicgen" or "elevenlabs" (default: "musicgen")
 
   ## Response
     - 202 Accepted: Audio generation started (returns job_id and status)
@@ -187,7 +188,8 @@ defmodule BackendWeb.Api.V3.AudioController do
       sync_mode: parse_sync_mode(audio_params["sync_mode"]),
       merge_with_video: parse_boolean(audio_params["merge_with_video"], false),
       error_strategy: parse_error_strategy(audio_params["error_strategy"]),
-      prompt: audio_params["prompt"]
+      prompt: audio_params["prompt"],
+      provider: parse_provider(audio_params["provider"])
     }
 
     {:ok, parsed_params}
@@ -227,6 +229,11 @@ defmodule BackendWeb.Api.V3.AudioController do
   defp parse_error_strategy("continue_with_silence"), do: :continue_with_silence
   defp parse_error_strategy("halt"), do: :halt
   defp parse_error_strategy(_), do: :continue_with_silence
+
+  defp parse_provider(nil), do: "musicgen"
+  defp parse_provider("elevenlabs"), do: "elevenlabs"
+  defp parse_provider("musicgen"), do: "musicgen"
+  defp parse_provider(_), do: "musicgen"
 
   defp start_async_audio_generation(job, audio_params) do
     # Start audio generation in a background task
