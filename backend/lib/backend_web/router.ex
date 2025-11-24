@@ -94,6 +94,16 @@ defmodule BackendWeb.Router do
           post "/music/single-scene", TestingController, :test_single_scene_music
           post "/music/multi-scene", TestingController, :test_multi_scene_music
           post "/music/from-templates", TestingController, :test_music_from_templates
+          post "/music/rapid", TestingController, :test_music_rapid
+          post "/music/chunk", TestingController, :test_music_chunk
+          post "/music/3chunk", TestingController, :test_music_3chunk
+          post "/music/elevenlabs", TestingController, :test_music_elevenlabs
+          post "/music/elevenlabs-3chunk", TestingController, :test_music_elevenlabs_3chunk
+          post "/music/elevenlabs-28s", TestingController, :test_music_elevenlabs_28s
+          
+          # Temporary audio hosting for Replicate continuation (via ngrok)
+          post "/audio/temp-upload", TestingController, :upload_temp_audio
+          get "/audio/temp/:token", TestingController, :serve_temp_audio
 
           # Text overlay testing
           post "/overlay/text", TestingController, :test_text_overlay
@@ -116,6 +126,7 @@ defmodule BackendWeb.Router do
           # Resource listing endpoints
           get "/campaigns", TestingController, :list_campaigns
           get "/campaigns/:id/assets", TestingController, :campaign_assets
+          get "/jobs", TestingController, :list_jobs
           get "/jobs/:id/preview", TestingController, :job_preview
 
           # Testing UI

@@ -1,12 +1,16 @@
 import Config
 
 # API Keys configuration - loaded from environment variables
+# NOTE: Set these in your PowerShell session before starting the server:
+#   $env:REPLICATE_API_KEY="your-key-here"
+#   $env:PUBLIC_BASE_URL="https://your-ngrok-url.ngrok-free.dev"
 public_base_url = System.get_env("PUBLIC_BASE_URL") || "https://mds.ngrok.dev"
 replicate_webhook_url = System.get_env("REPLICATE_WEBHOOK_URL")
 
 config :backend,
   replicate_api_key: System.get_env("REPLICATE_API_KEY"),
   xai_api_key: System.get_env("XAI_API_KEY"),
+  elevenlabs_api_key: System.get_env("ELEVENLABS_API_KEY", "21cf81ac74a36d129e5f6aad3feac832"),
   public_base_url: public_base_url,
   asset_base_url: public_base_url,
   replicate_webhook_url: replicate_webhook_url,

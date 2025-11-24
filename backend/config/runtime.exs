@@ -27,7 +27,8 @@ if config_env() == :prod do
   # API Keys configuration
   config :backend,
     replicate_api_key: System.get_env("REPLICATE_API_KEY"),
-    xai_api_key: System.get_env("XAI_API_KEY")
+    xai_api_key: System.get_env("XAI_API_KEY"),
+    elevenlabs_api_key: System.get_env("ELEVENLABS_API_KEY")
 
   database_path =
     System.get_env("DATABASE_PATH") ||
