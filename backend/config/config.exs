@@ -13,6 +13,13 @@ config :backend,
   ecto_repos: [Backend.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+config :backend,
+  auto_generate_audio: false,
+  audio_merge_with_video: true,
+  audio_fail_on_error: false,
+  audio_sync_mode: :trim,
+  audio_error_strategy: :continue_with_silence
+
 # Configures the endpoint
 config :backend, BackendWeb.Endpoint,
   url: [host: "localhost"],

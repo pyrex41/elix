@@ -1,9 +1,30 @@
 # Current Project Progress
-Last Updated: 2025-11-23 (Late Evening - Deployment Session)
+Last Updated: 2025-11-24 (Afternoon – Prompt Tooling & Metadata Refresh)
 
-## 🚀 Project Status: End-to-End Pipeline Working, Deploying to Fly.io
+## 🚀 Project Status: Testing UI live, asset metadata normalized, OpenAPI auto-regens
 
-### Latest Accomplishments (Session: 2025-11-23 Late Evening)
+### Latest Accomplishments (Session: 2025-11-24 Afternoon)
+
+#### ✅ Prompt Testing Interface Walkthrough
+- Documented the `/api/v3/testing/ui` workflow so prompt, image-selection, music, overlay, and voiceover teams can self-serve tests locally (`http://localhost:4000/api/v3/testing/ui`) or on Fly.
+- Confirmed API-key storage, pipeline toggles, and each section’s expected JSON output, closing the last gaps raised in PR #1 before archiving it.
+
+#### ✅ Campaign & Asset Data Model Fixes
+- Made `campaigns.brief` optional across DB, schema, and controllers to unblock campaign creation before briefs are finalized.
+- Rebuilt `assets` persistence with explicit `description`, `tags`, `client_id`, and `name` columns plus a CHECK (`campaign_id OR client_id`). `Asset` changesets now enforce “campaign or client” ownership, validate string-array tags, and auto-backfill `client_id` when only `campaign_id` is provided.
+- Updated asset CRUD + testing endpoints to emit the richer metadata (name/description/tags/client) so downstream selection + prompt logic can rely on normalized fields.
+- Added optional `name` to the asset API and JSON responses for CRUD consumers.
+
+#### ✅ Automatic OpenAPI Regeneration
+- Added a lightweight startup task that rewrites `priv/static/openapi.json` after the endpoint boots; `https://gauntlet-video-server.fly.dev/api/openapi.json` already reflects the new asset schema, so frontend codegen (via `openapi-typescript`) stays current after each deploy.
+- Re-ran `mix backend.openapispec` in-repo so local references match what Fly serves.
+
+#### 🔍 Validation
+- `mix test` (77 tests) green after every schema change; manual curl verification of the deployed spec ensures codegen clients see the new fields.
+
+---
+
+### Previous Session Accomplishments (2025-11-23 Late Evening)
 
 #### ✅ CRITICAL BUG FIX: Video Blob Preservation
 **Fixed coordinator overwriting video blobs with completion messages**

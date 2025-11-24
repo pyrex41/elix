@@ -12,8 +12,14 @@ defmodule Backend.Schemas.Asset do
     field :blob_data, :binary
     field :metadata, :map
     field :source_url, :string
+    field :description, :string
+    field :name, :string
+    field :tags, {:array, :string}
+    field :width, :integer
+    field :height, :integer
 
     belongs_to :campaign, Backend.Schemas.Campaign
+    belongs_to :client, Backend.Schemas.Client
 
     timestamps()
   end
@@ -29,11 +35,26 @@ defmodule Backend.Schemas.Asset do
   """
   def changeset(asset, attrs) do
     asset
-    |> cast(attrs, [:type, :blob_data, :metadata, :source_url, :campaign_id])
-    |> validate_required([:type, :campaign_id])
+    |> cast(attrs, [
+      :type,
+      :blob_data,
+      :metadata,
+      :source_url,
+      :campaign_id,
+      :client_id,
+      :description,
+      :tags,
+      :name,
+      :width,
+      :height
+    ])
+    |> validate_required([:type])
     |> validate_inclusion(:type, @asset_types)
     |> validate_asset_source()
+    |> validate_tags()
+    |> validate_campaign_or_client()
     |> foreign_key_constraint(:campaign_id)
+    |> foreign_key_constraint(:client_id)
   end
 
   @doc """
@@ -41,11 +62,27 @@ defmodule Backend.Schemas.Asset do
   """
   def migration_changeset(asset, attrs) do
     asset
-    |> cast(attrs, [:id, :type, :blob_data, :metadata, :source_url, :campaign_id])
-    |> validate_required([:id, :type, :campaign_id])
+    |> cast(attrs, [
+      :id,
+      :type,
+      :blob_data,
+      :metadata,
+      :source_url,
+      :campaign_id,
+      :client_id,
+      :description,
+      :tags,
+      :name,
+      :width,
+      :height
+    ])
+    |> validate_required([:id, :type])
     |> validate_inclusion(:type, @asset_types)
     |> validate_asset_source()
+    |> validate_tags()
+    |> validate_campaign_or_client()
     |> foreign_key_constraint(:campaign_id)
+    |> foreign_key_constraint(:client_id)
   end
 
   # Private function to validate that either blob_data or source_url is present
@@ -57,6 +94,36 @@ defmodule Backend.Schemas.Asset do
       blob_data != nil -> changeset
       source_url != nil and source_url != "" -> changeset
       true -> add_error(changeset, :base, "either blob_data or source_url must be present")
+    end
+  end
+
+  defp validate_campaign_or_client(changeset) do
+    campaign_id = get_field(changeset, :campaign_id)
+    client_id = get_field(changeset, :client_id)
+
+    if is_nil(campaign_id) and is_nil(client_id) do
+      changeset
+      |> add_error(:campaign_id, "must include campaign_id or client_id")
+      |> add_error(:client_id, "must include campaign_id or client_id")
+    else
+      changeset
+    end
+  end
+
+  defp validate_tags(changeset) do
+    case get_field(changeset, :tags) do
+      nil ->
+        changeset
+
+      tags when is_list(tags) ->
+        if Enum.all?(tags, &is_binary/1) do
+          changeset
+        else
+          add_error(changeset, :tags, "must be an array of strings")
+        end
+
+      _ ->
+        add_error(changeset, :tags, "must be an array of strings")
     end
   end
 end

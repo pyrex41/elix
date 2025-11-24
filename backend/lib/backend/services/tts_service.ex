@@ -155,7 +155,10 @@ defmodule Backend.Services.TtsService do
             {:ok, audio_blob}
 
           {:ok, %{status: status, body: body}} ->
-            Logger.error("[TtsService] ElevenLabs API returned status #{status}: #{inspect(body)}")
+            Logger.error(
+              "[TtsService] ElevenLabs API returned status #{status}: #{inspect(body)}"
+            )
+
             {:error, "API request failed with status #{status}"}
 
           {:error, exception} ->
@@ -333,7 +336,10 @@ defmodule Backend.Services.TtsService do
         parse_script_response(response_body, scenes)
 
       {:ok, %{status: status, body: body}} ->
-        Logger.error("[TtsService] Script generation API returned status #{status}: #{inspect(body)}")
+        Logger.error(
+          "[TtsService] Script generation API returned status #{status}: #{inspect(body)}"
+        )
+
         {:error, "API request failed with status #{status}"}
 
       {:error, exception} ->
@@ -381,7 +387,8 @@ defmodule Backend.Services.TtsService do
       |> Enum.map(fn {scene, idx} ->
         %{
           "scene" => idx,
-          "script" => "Discover the beauty of #{scene["title"]}. #{property_name} offers unparalleled luxury."
+          "script" =>
+            "Discover the beauty of #{scene["title"]}. #{property_name} offers unparalleled luxury."
         }
       end)
 

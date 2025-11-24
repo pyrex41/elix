@@ -284,6 +284,29 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
 
       assert Enum.map(response["data"], & &1["job_id"]) == [job.id]
     end
+
+    test "returns storyboard data for thumbnail generation", %{conn: conn} do
+      storyboard = %{
+        "scenes" => [
+          %{"id" => "scene-1", "asset_ids" => ["asset-123"], "title" => "Front of house"}
+        ]
+      }
+
+      job =
+        insert_job(%{
+          status: :completed,
+          result: "video-thumb",
+          storyboard: storyboard
+        })
+
+      response =
+        conn
+        |> get(~p"/api/v3/generated-videos", %{job_id: job.id})
+        |> json_response(200)
+
+      [payload] = response["data"]
+      assert payload["storyboard"] == storyboard
+    end
   end
 
   describe "job approval workflow integration" do

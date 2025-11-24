@@ -2,7 +2,8 @@ defmodule BackendWeb.Api.V3.AssetController do
   use BackendWeb, :controller
 
   alias Backend.Repo
-  alias Backend.Schemas.{Asset, Campaign}
+  alias Backend.Schemas.{Asset, Campaign, Client}
+  alias ExImageInfo
 
   alias BackendWeb.ApiSchemas.{
     AssetRequest,
@@ -40,6 +41,7 @@ defmodule BackendWeb.Api.V3.AssetController do
     base_query =
       Asset
       |> maybe_filter(:campaign_id, params["campaign_id"])
+      |> maybe_filter(:client_id, params["client_id"] || params["clientId"])
       |> maybe_filter(:type, params["asset_type"] || params["type"])
 
     total = Repo.aggregate(base_query, :count, :id)
@@ -50,7 +52,7 @@ defmodule BackendWeb.Api.V3.AssetController do
       |> offset(^offset)
       |> limit(^limit)
       |> Repo.all()
-      |> Repo.preload(:campaign)
+      |> Repo.preload([:campaign, :client])
 
     json(conn, %{
       data: Enum.map(assets, &asset_json/1),
@@ -59,7 +61,7 @@ defmodule BackendWeb.Api.V3.AssetController do
   end
 
   def show(conn, %{"id" => id}) do
-    case Repo.get(Asset, id) |> Repo.preload(:campaign) do
+    case Repo.get(Asset, id) |> Repo.preload([:campaign, :client]) do
       nil ->
         conn
         |> put_status(:not_found)
@@ -77,7 +79,7 @@ defmodule BackendWeb.Api.V3.AssetController do
       {:ok, asset_attrs} ->
         case create_asset(asset_attrs) do
           {:ok, asset} ->
-            asset = Repo.preload(asset, :campaign)
+            asset = Repo.preload(asset, [:campaign, :client])
 
             conn
             |> put_status(:created)
@@ -134,7 +136,7 @@ defmodule BackendWeb.Api.V3.AssetController do
 
     with {:ok, asset_attrs} <- handle_upload(params),
          {:ok, asset} <- create_asset(asset_attrs) do
-      asset = Repo.preload(asset, :campaign)
+      asset = Repo.preload(asset, [:campaign, :client])
 
       conn
       |> put_status(:created)
@@ -181,7 +183,7 @@ defmodule BackendWeb.Api.V3.AssetController do
             {:ok, attrs} ->
               case create_asset(attrs) do
                 {:ok, asset} ->
-                  asset = Repo.preload(asset, :campaign)
+                  asset = Repo.preload(asset, [:campaign, :client])
                   {[asset_json(asset) | ok_acc], error_acc}
 
                 {:error, %Ecto.Changeset{} = changeset} ->
@@ -257,7 +259,7 @@ defmodule BackendWeb.Api.V3.AssetController do
         # Create asset in database
         case create_asset(asset_attrs) do
           {:ok, asset} ->
-            asset = Repo.preload(asset, :campaign)
+            asset = Repo.preload(asset, [:campaign, :client])
 
             conn
             |> put_status(:created)
@@ -382,24 +384,55 @@ defmodule BackendWeb.Api.V3.AssetController do
   # Private helper functions
 
   defp normalize_asset_params(%{} = params) do
-    params =
+    normalized =
       params
       |> Enum.map(fn {key, value} -> {normalize_key(key), value} end)
       |> Enum.into(%{})
 
     metadata =
-      Map.get(params, "metadata") ||
-        Map.get(params, "meta") ||
-        Map.get(params, "tags")
+      normalized
+      |> Map.get("metadata")
+      |> case do
+        nil -> Map.get(normalized, "meta")
+        value -> value
+      end
 
-    params
-    |> Map.put_new("campaign_id", params["campaign_id"] || params["campaignId"])
+    tags =
+      normalized
+      |> Map.get("tags")
+      |> case do
+        nil -> Map.get(normalized, "tag_list")
+        value -> value
+      end
+
+    description = Map.get(normalized, "description") || Map.get(normalized, "caption")
+
+    name =
+      normalized["name"] ||
+        case metadata do
+          %{} ->
+            metadata["name"] ||
+              metadata["original_name"] ||
+              metadata["originalName"]
+
+          _ ->
+            nil
+        end
+
+    normalized
+    |> Map.put("name", name)
+    |> Map.put("width", parse_dimension_param(normalized["width"]))
+    |> Map.put("height", parse_dimension_param(normalized["height"]))
+    |> Map.put_new("campaign_id", normalized["campaign_id"] || normalized["campaignId"])
+    |> Map.put_new("client_id", normalized["client_id"] || normalized["clientId"])
     |> Map.put_new(
       "source_url",
-      params["source_url"] || params["sourceUrl"] || params["url"]
+      normalized["source_url"] || normalized["sourceUrl"] || normalized["url"]
     )
-    |> Map.put_new("type", params["type"] || params["asset_type"])
+    |> Map.put_new("type", normalized["type"] || normalized["asset_type"])
     |> Map.put("metadata", metadata)
+    |> Map.put("tags", tags)
+    |> Map.put("description", description)
   end
 
   defp normalize_asset_params(params) when is_list(params), do: params
@@ -462,8 +495,16 @@ defmodule BackendWeb.Api.V3.AssetController do
     end
   end
 
+  defp maybe_filter(query, :campaign_id, value) when value in [nil, ""], do: query
+
   defp maybe_filter(query, :campaign_id, value) do
     where(query, [a], a.campaign_id == ^value)
+  end
+
+  defp maybe_filter(query, :client_id, value) when value in [nil, ""], do: query
+
+  defp maybe_filter(query, :client_id, value) do
+    where(query, [a], a.client_id == ^value)
   end
 
   defp asset_json(asset) do
@@ -475,28 +516,26 @@ defmodule BackendWeb.Api.V3.AssetController do
       userId: metadata_value(metadata, ["userId", "user_id"]) || "",
       clientId: asset_client_id(asset, metadata),
       campaignId: asset.campaign_id,
-      name: asset_name(metadata, asset.id),
+      name: asset_name(asset, metadata, asset.id),
       url: asset_data_url(asset.id),
       size: parse_integer(metadata["size"]),
       uploadedAt: format_timestamp(asset.inserted_at),
-      tags: parse_tags(metadata["tags"]),
+      description: asset_description(asset, metadata),
+      tags: asset_tags(asset, metadata),
       thumbnailBlobId: metadata_value(metadata, ["thumbnail_blob_id", "thumbnailBlobId"]),
       sourceUrl: asset.source_url,
       type: type,
-      format: asset_format(asset, metadata)
+      format: asset_format(asset, metadata),
+      width: asset_dimension(asset.width, metadata["width"]),
+      height: asset_dimension(asset.height, metadata["height"])
     }
 
     case type do
       "image" ->
-        Map.merge(base, %{
-          width: parse_integer(metadata["width"], 0),
-          height: parse_integer(metadata["height"], 0)
-        })
+        base
 
       "video" ->
         Map.merge(base, %{
-          width: parse_integer(metadata["width"], 0),
-          height: parse_integer(metadata["height"], 0),
           duration: parse_integer(metadata["duration"], 0),
           thumbnailUrl: asset_thumbnail_url(asset.id)
         })
@@ -512,17 +551,45 @@ defmodule BackendWeb.Api.V3.AssetController do
     end
   end
 
-  defp asset_client_id(%{campaign: %Campaign{client_id: client_id}}, _metadata), do: client_id
+  defp asset_client_id(%{client_id: client_id}, _metadata) when not is_nil(client_id),
+    do: client_id
 
-  defp asset_client_id(_asset, metadata) do
-    metadata_value(metadata, ["clientId", "client_id"])
+  defp asset_client_id(%{client: %Client{id: client_id}}, _metadata) when not is_nil(client_id),
+    do: client_id
+
+  defp asset_client_id(%{campaign: %Campaign{client_id: client_id}}, _metadata)
+       when not is_nil(client_id),
+       do: client_id
+
+  defp asset_client_id(_asset, metadata),
+    do: metadata_value(metadata, ["clientId", "client_id"])
+
+  defp asset_name(%{name: name}, _metadata, _fallback) when is_binary(name) and name != "" do
+    name
   end
 
-  defp asset_name(metadata, fallback) do
+  defp asset_name(_asset, metadata, fallback) do
     metadata["name"] ||
       metadata["original_name"] ||
       metadata["originalName"] ||
       fallback
+  end
+
+  defp asset_description(%{description: description}, _metadata)
+       when is_binary(description) and description != "" do
+    description
+  end
+
+  defp asset_description(_asset, metadata) do
+    metadata_value(metadata, ["description", "caption", "summary"])
+  end
+
+  defp asset_tags(%{tags: tags}, _metadata) when is_list(tags) and length(tags) > 0 do
+    tags
+  end
+
+  defp asset_tags(_asset, metadata) do
+    parse_tags(metadata["tags"]) || []
   end
 
   defp asset_type_string(%{type: type}) when is_atom(type), do: Atom.to_string(type)
@@ -552,17 +619,90 @@ defmodule BackendWeb.Api.V3.AssetController do
 
   defp parse_integer(_, default), do: default
 
+  defp asset_dimension(value, metadata_value) do
+    cond do
+      is_integer(value) -> value
+      true -> parse_integer(metadata_value, nil)
+    end
+  end
+
+  defp extract_tags_param(params, metadata) do
+    params_tags = Map.get(params, "tags")
+
+    cond do
+      params_tags != nil ->
+        parse_tags(params_tags) || []
+
+      is_map(metadata) && Map.has_key?(metadata, "tags") ->
+        parse_tags(metadata["tags"]) || []
+
+      true ->
+        []
+    end
+  end
+
+  defp extract_description_param(params, metadata) do
+    description =
+      Map.get(params, "description") ||
+        if(is_map(metadata), do: Map.get(metadata, "description") || Map.get(metadata, "caption"))
+
+    if is_binary(description) and description != "" do
+      description
+    else
+      nil
+    end
+  end
+
   defp parse_tags(nil), do: nil
   defp parse_tags(tags) when is_list(tags), do: tags
 
   defp parse_tags(tags) when is_binary(tags) do
     case Jason.decode(tags) do
-      {:ok, decoded} when is_list(decoded) -> decoded
-      _ -> nil
+      {:ok, decoded} when is_list(decoded) ->
+        decoded
+
+      _ ->
+        tags
+        |> String.split(",", trim: true)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+        |> case do
+          [] -> nil
+          list -> list
+        end
     end
   end
 
   defp parse_tags(_), do: nil
+
+  defp parse_dimension_param(value) when is_integer(value), do: value
+
+  defp parse_dimension_param(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      :error -> nil
+    end
+  end
+
+  defp parse_dimension_param(_), do: nil
+
+  defp ensure_client_from_campaign(%{client_id: client_id} = attrs)
+       when not is_nil(client_id) and client_id != "" do
+    attrs
+  end
+
+  defp ensure_client_from_campaign(%{campaign_id: campaign_id} = attrs)
+       when is_binary(campaign_id) and campaign_id != "" do
+    case Repo.get(Campaign, campaign_id) do
+      %Campaign{client_id: client_id} when not is_nil(client_id) ->
+        Map.put(attrs, :client_id, client_id)
+
+      _ ->
+        attrs
+    end
+  end
+
+  defp ensure_client_from_campaign(attrs), do: attrs
 
   defp metadata_value(metadata, keys) do
     Enum.find_value(List.wrap(keys), fn key ->
@@ -644,14 +784,23 @@ defmodule BackendWeb.Api.V3.AssetController do
     case File.read(upload.path) do
       {:ok, blob_data} ->
         type = Map.get(params, "type", infer_type_from_upload(upload))
+        metadata = parse_metadata(params["metadata"])
+        tags = extract_tags_param(params, metadata)
+        description = extract_description_param(params, metadata)
 
-        attrs = %{
-          blob_data: blob_data,
-          type: normalize_type(type),
-          source_url: nil,
-          campaign_id: Map.get(params, "campaign_id"),
-          metadata: parse_metadata(params["metadata"])
-        }
+        attrs =
+          %{
+            blob_data: blob_data,
+            type: normalize_type(type),
+            source_url: nil,
+            campaign_id: Map.get(params, "campaign_id"),
+            client_id: Map.get(params, "client_id"),
+            metadata: metadata,
+            tags: tags,
+            description: description,
+            name: Map.get(params, "name")
+          }
+          |> maybe_set_dimensions_from_blob()
 
         {:ok, attrs}
 
@@ -665,14 +814,23 @@ defmodule BackendWeb.Api.V3.AssetController do
     case download_from_url(url) do
       {:ok, blob_data, content_type} ->
         type = Map.get(params, "type") || infer_type_from_content_type(content_type)
+        metadata = parse_metadata(params["metadata"])
+        tags = extract_tags_param(params, metadata)
+        description = extract_description_param(params, metadata)
 
-        attrs = %{
-          blob_data: blob_data,
-          type: normalize_type(type),
-          source_url: url,
-          campaign_id: Map.get(params, "campaign_id"),
-          metadata: parse_metadata(params["metadata"])
-        }
+        attrs =
+          %{
+            blob_data: blob_data,
+            type: normalize_type(type),
+            source_url: url,
+            campaign_id: Map.get(params, "campaign_id"),
+            client_id: Map.get(params, "client_id"),
+            metadata: metadata,
+            tags: tags,
+            description: description,
+            name: Map.get(params, "name")
+          }
+          |> maybe_set_dimensions_from_blob()
 
         {:ok, attrs}
 
@@ -732,6 +890,45 @@ defmodule BackendWeb.Api.V3.AssetController do
 
   defp maybe_generate_thumbnail(attrs), do: attrs
 
+  defp maybe_set_dimensions_from_blob(%{type: type} = attrs) when type in [:image, "image"] do
+    metadata = attrs[:metadata] || %{}
+
+    width =
+      attrs[:width] ||
+        parse_integer(metadata["width"], nil)
+
+    height =
+      attrs[:height] ||
+        parse_integer(metadata["height"], nil)
+
+    {final_width, final_height} =
+      case {width, height} do
+        {w, h} when is_integer(w) and is_integer(h) ->
+          {w, h}
+
+        _ ->
+          blob = attrs[:blob_data]
+
+          if is_binary(blob) do
+            case ExImageInfo.info(blob) do
+              {:ok, %{width: w, height: h}} -> {w, h}
+              _ -> {width, height}
+            end
+          else
+            {width, height}
+          end
+      end
+
+    attrs
+    |> maybe_put_dimension(:width, final_width)
+    |> maybe_put_dimension(:height, final_height)
+  end
+
+  defp maybe_set_dimensions_from_blob(attrs), do: attrs
+
+  defp maybe_put_dimension(attrs, _key, nil), do: attrs
+  defp maybe_put_dimension(attrs, key, value), do: Map.put(attrs, key, value)
+
   defp generate_video_thumbnail(blob_data) do
     # Create temporary file for video
     temp_video_path =
@@ -777,6 +974,8 @@ defmodule BackendWeb.Api.V3.AssetController do
   end
 
   defp create_asset(attrs) do
+    attrs = ensure_client_from_campaign(attrs)
+
     %Asset{}
     |> Asset.changeset(attrs)
     |> Repo.insert()
@@ -892,6 +1091,10 @@ defmodule BackendWeb.Api.V3.AssetController do
         parameter(:campaign_id, :query, :string, "Filter by campaign ID",
           required: false,
           example: "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6"
+        ),
+        parameter(:client_id, :query, :string, "Filter by client ID",
+          required: false,
+          example: "1a9a0d93-6a0d-4c15-8f60-8cb285c7f041"
         ),
         parameter(:asset_type, :query, :string, "Filter by asset type (image/video/audio)",
           required: false

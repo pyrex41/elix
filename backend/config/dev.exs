@@ -4,13 +4,31 @@ import Config
 public_base_url = System.get_env("PUBLIC_BASE_URL") || "https://mds.ngrok.dev"
 replicate_webhook_url = System.get_env("REPLICATE_WEBHOOK_URL")
 
+audio_sync_mode =
+  case String.downcase(System.get_env("AUDIO_SYNC_MODE") || "trim") do
+    "stretch" -> :stretch
+    "compress" -> :compress
+    _ -> :trim
+  end
+
+audio_error_strategy =
+  case String.downcase(System.get_env("AUDIO_ERROR_STRATEGY") || "continue_with_silence") do
+    "halt" -> :halt
+    _ -> :continue_with_silence
+  end
+
 config :backend,
   replicate_api_key: System.get_env("REPLICATE_API_KEY"),
   xai_api_key: System.get_env("XAI_API_KEY"),
   public_base_url: public_base_url,
   asset_base_url: public_base_url,
   replicate_webhook_url: replicate_webhook_url,
-  video_generation_model: System.get_env("VIDEO_GENERATION_MODEL", "veo3")
+  video_generation_model: System.get_env("VIDEO_GENERATION_MODEL", "veo3"),
+  auto_generate_audio: System.get_env("AUTO_GENERATE_AUDIO", "false") == "true",
+  audio_merge_with_video: System.get_env("AUDIO_MERGE_WITH_VIDEO", "true") != "false",
+  audio_fail_on_error: System.get_env("AUDIO_FAIL_ON_ERROR", "false") == "true",
+  audio_sync_mode: audio_sync_mode,
+  audio_error_strategy: audio_error_strategy
 
 # Configure your database
 config :backend, Backend.Repo,

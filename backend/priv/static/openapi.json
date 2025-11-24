@@ -7,7 +7,21 @@
         "properties": {
           "campaign_id": {
             "format": "uuid",
+            "nullable": true,
             "type": "string"
+          },
+          "client_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "height": {
+            "nullable": true,
+            "type": "integer"
           },
           "id": {
             "format": "uuid",
@@ -21,9 +35,20 @@
             "additionalProperties": true,
             "type": "object"
           },
+          "name": {
+            "nullable": true,
+            "type": "string"
+          },
           "source_url": {
             "nullable": true,
             "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
           },
           "type": {
             "enum": [
@@ -36,12 +61,15 @@
           "updated_at": {
             "format": "date-time",
             "type": "string"
+          },
+          "width": {
+            "nullable": true,
+            "type": "integer"
           }
         },
         "required": [
           "id",
-          "type",
-          "campaign_id"
+          "type"
         ],
         "title": "Asset",
         "type": "object"
@@ -127,7 +155,7 @@
         "type": "object"
       },
       "AssetRequest": {
-        "description": "Payload used to create an asset via JSON upload.",
+        "description": "Payload used to create an asset via JSON upload. Either campaign_id or client_id must be provided.",
         "properties": {
           "blob_data": {
             "description": "Base64 encoded binary payload",
@@ -135,16 +163,37 @@
             "type": "string"
           },
           "campaign_id": {
+            "description": "Required if client_id is not provided",
             "format": "uuid",
+            "type": "string"
+          },
+          "client_id": {
+            "description": "Required if campaign_id is not provided",
+            "format": "uuid",
+            "type": "string"
+          },
+          "description": {
+            "nullable": true,
             "type": "string"
           },
           "metadata": {
             "additionalProperties": true,
             "type": "object"
           },
+          "name": {
+            "nullable": true,
+            "type": "string"
+          },
           "source_url": {
             "description": "URL to download asset from",
             "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
           },
           "type": {
             "enum": [
@@ -156,7 +205,6 @@
           }
         },
         "required": [
-          "campaign_id",
           "type"
         ],
         "title": "AssetRequest",
@@ -401,6 +449,10 @@
             "nullable": true,
             "type": "string"
           },
+          "height": {
+            "nullable": true,
+            "type": "integer"
+          },
           "homepage": {
             "nullable": true,
             "type": "string"
@@ -423,6 +475,10 @@
           "updated_at": {
             "format": "date-time",
             "type": "string"
+          },
+          "width": {
+            "nullable": true,
+            "type": "integer"
           }
         },
         "required": [
@@ -614,6 +670,24 @@
             "format": "float",
             "type": "number"
           },
+          "costs": {
+            "nullable": true,
+            "properties": {
+              "currency": {
+                "type": "string"
+              },
+              "estimated": {
+                "format": "float",
+                "type": "number"
+              }
+            },
+            "type": "object"
+          },
+          "estimated_cost": {
+            "format": "float",
+            "nullable": true,
+            "type": "number"
+          },
           "job_id": {
             "description": "Job identifier",
             "type": "integer"
@@ -644,6 +718,25 @@
             ],
             "type": "string"
           },
+          "storyboard": {
+            "properties": {
+              "scenes": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "total_duration": {
+                "nullable": true,
+                "type": "number"
+              }
+            },
+            "type": "object"
+          },
+          "storyboard_ready": {
+            "type": "boolean"
+          },
           "total_assets": {
             "type": "integer"
           },
@@ -652,6 +745,9 @@
               "image_pairs",
               "property_photos"
             ],
+            "type": "string"
+          },
+          "video_name": {
             "type": "string"
           }
         },
@@ -667,8 +763,26 @@
       "JobShowResponse": {
         "description": "Response body returned when fetching a job.",
         "properties": {
+          "costs": {
+            "nullable": true,
+            "properties": {
+              "currency": {
+                "type": "string"
+              },
+              "estimated": {
+                "format": "float",
+                "type": "number"
+              }
+            },
+            "type": "object"
+          },
           "current_stage": {
             "type": "string"
+          },
+          "estimated_cost": {
+            "format": "float",
+            "nullable": true,
+            "type": "number"
           },
           "inserted_at": {
             "format": "date-time",
@@ -696,6 +810,9 @@
           },
           "updated_at": {
             "format": "date-time",
+            "type": "string"
+          },
+          "video_name": {
             "type": "string"
           }
         },
@@ -727,6 +844,16 @@
             "example": "d2d06a3d-2c02-4db0-b3ad-8f6c9bcc6fd6",
             "in": "query",
             "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by client ID",
+            "example": "1a9a0d93-6a0d-4c15-8f60-8cb285c7f041",
+            "in": "query",
+            "name": "client_id",
             "required": false,
             "schema": {
               "type": "string"
@@ -1889,6 +2016,159 @@
         "summary": "Client stats",
         "tags": [
           "clients"
+        ]
+      }
+    },
+    "/api/v3/generated-videos": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Returns recently completed jobs with rendered videos filtered by job ID, campaign, and/or client.",
+        "operationId": "JobController.generated_videos",
+        "parameters": [
+          {
+            "description": "Filter by job ID",
+            "example": 123,
+            "in": "query",
+            "name": "job_id",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Filter by campaign ID",
+            "example": "313e2460-2520-401b-86f4-385ebe41d4b8",
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by client ID",
+            "example": "5ad559d3-d10b-4ec2-a3d5-0e049416b1c1",
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max records to return",
+            "example": 25,
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Offset for pagination",
+            "example": 0,
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "properties": {
+                          "campaign_id": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "client_id": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "inserted_at": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "job_id": {
+                            "type": "integer"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "storyboard": {
+                            "additionalProperties": true,
+                            "description": "Storyboard scenes and metadata for thumbnail selection",
+                            "nullable": true,
+                            "type": "object"
+                          },
+                          "total_duration": {
+                            "nullable": true,
+                            "type": "number"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "updated_at": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "video_url": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "job_id",
+                          "status",
+                          "type",
+                          "video_url"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "meta": {
+                      "properties": {
+                        "count": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "count",
+                        "limit",
+                        "offset"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Generated videos"
+          }
+        },
+        "summary": "List generated videos",
+        "tags": [
+          "jobs"
         ]
       }
     },

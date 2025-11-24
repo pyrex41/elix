@@ -276,6 +276,8 @@ defmodule Backend.Workflow.RenderWorker do
         }
       }
 
+      log_scene_prompt(job, scene, index, render_request)
+
       {:ok, render_request}
     end
   end
@@ -406,6 +408,33 @@ defmodule Backend.Workflow.RenderWorker do
   end
 
   defp normalize_param_keys(_), do: %{}
+
+  defp log_scene_prompt(%Job{id: job_id, storyboard: storyboard}, scene, index, render_request) do
+    scene_total =
+      storyboard
+      |> case do
+        %{"scenes" => scenes} when is_list(scenes) -> length(scenes)
+        %{scenes: scenes} when is_list(scenes) -> length(scenes)
+        _ -> nil
+      end
+
+    scene_type =
+      scene["scene_type"] ||
+        scene[:scene_type] ||
+        scene["title"] ||
+        scene[:title] ||
+        "unknown_scene"
+
+    prompt_preview =
+      render_request.prompt
+      |> to_string()
+      |> String.replace("\n", " ")
+      |> String.trim()
+
+    Logger.info(
+      "[RenderWorker] Job #{job_id} scene #{index + 1}#{if scene_total, do: "/#{scene_total}", else: ""} (#{scene_type}) prompt: #{prompt_preview}"
+    )
+  end
 
   defp scene_prompt(scene) do
     scene["prompt"] ||

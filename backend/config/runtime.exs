@@ -29,6 +29,19 @@ if config_env() == :prod do
     replicate_api_key: System.get_env("REPLICATE_API_KEY"),
     xai_api_key: System.get_env("XAI_API_KEY")
 
+  audio_sync_mode =
+    case String.downcase(System.get_env("AUDIO_SYNC_MODE") || "trim") do
+      "stretch" -> :stretch
+      "compress" -> :compress
+      _ -> :trim
+    end
+
+  audio_error_strategy =
+    case String.downcase(System.get_env("AUDIO_ERROR_STRATEGY") || "continue_with_silence") do
+      "halt" -> :halt
+      _ -> :continue_with_silence
+    end
+
   database_path =
     System.get_env("DATABASE_PATH") ||
       raise """
@@ -64,7 +77,12 @@ if config_env() == :prod do
     public_base_url: public_base_url,
     asset_base_url: public_base_url,
     video_generation_model: System.get_env("VIDEO_GENERATION_MODEL", "veo3"),
-    replicate_webhook_url: replicate_webhook_url
+    replicate_webhook_url: replicate_webhook_url,
+    auto_generate_audio: System.get_env("AUTO_GENERATE_AUDIO", "false") == "true",
+    audio_merge_with_video: System.get_env("AUDIO_MERGE_WITH_VIDEO", "true") != "false",
+    audio_fail_on_error: System.get_env("AUDIO_FAIL_ON_ERROR", "false") == "true",
+    audio_sync_mode: audio_sync_mode,
+    audio_error_strategy: audio_error_strategy
 
   config :backend, BackendWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],

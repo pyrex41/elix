@@ -169,20 +169,21 @@ defmodule Backend.Services.MusicgenService do
     end
   end
 
-  defp attach_continuation_window(options, total_duration) do
+  defp attach_continuation_window(options, _total_duration) do
     continuation_url = options[:continuation_audio_url]
 
     cond do
       is_nil(continuation_url) ->
         options
 
-      total_duration <= 0 ->
-        options
-
       true ->
-        window = min(continuation_window_seconds(), total_duration)
-        start_time = max(total_duration - window, 0.0)
-        end_time = max(total_duration, start_time + 0.5)
+        # Continuation window should be relative to the INPUT audio file duration,
+        # not cumulative time. Since each scene generates 4s of audio, we always
+        # take the last 1s (3-4s) of the previous scene's 4s output as continuation.
+        input_audio_duration = 4.0
+        window = min(continuation_window_seconds(), input_audio_duration)
+        start_time = max(input_audio_duration - window, 0.0) |> to_float()
+        end_time = input_audio_duration
 
         start_value = start_time |> Float.floor() |> trunc()
         end_value = end_time |> Float.ceil() |> trunc()
@@ -761,6 +762,15 @@ defmodule Backend.Services.MusicgenService do
     else
       Logger.debug("[MusicgenService] Sending fresh clip for #{title}")
     end
+
+    # Log full request payload for debugging
+    sanitized_params =
+      params
+      |> Map.update("input_audio", nil, fn url ->
+        if url, do: String.slice(url, 0..100) <> "...", else: nil
+      end)
+
+    Logger.debug("[MusicgenService] Request params for #{title}: #{inspect(sanitized_params)}")
   end
 
   defp continuation_source_label(options) do

@@ -134,3 +134,22 @@ All todos completed and cleared. No pending items.
 - Efficient parallel processing with Task.async_stream
 - Production-ready error handling and logging
 - Successfully migrated all existing data with blob preservation
+
+---
+
+## 2025-11-24 – Testing UI polish & Asset metadata refresh
+
+### Prompt Testing UX
+- Documented and verified the `/api/v3/testing/ui` workflow so prompts, music, overlays, and voiceovers can be exercised from one page. Confirmed localhost + deployed usage, API-key storage, and clarified test coverage for image selection + audio continuation.
+- Closed the stale “Create AI video generation prompts” PR after confirming every change already lived on `master`, preventing redundant merges for the prompt-dev team.
+
+### Campaign & Asset data model fixes
+- Relaxed `campaigns.brief` to be optional via a SQLite rebuild + schema updates, matching controller behavior when briefs are captured later in the workflow.
+- Rebuilt asset storage: added `description`, `tags`, `client_id`, and `name`, plus a CHECK constraint that enforces at least one of `campaign_id`/`client_id`. The `Asset` schema/changesets now validate string-array tags and auto-backfill `client_id` whenever only `campaign_id` is supplied.
+- Updated every response surface (asset CRUD, testing endpoints, prompt services) to emit normalized `name`, `description`, `tags`, and ownership metadata so downstream teams can reliably filter assets.
+
+### OpenAPI delivery automation
+- Added a lightweight startup task that regenerates `priv/static/openapi.json` after the endpoint boots; redeployed spec now exposes the richer asset schema at `https://gauntlet-video-server.fly.dev/api/openapi.json` with no manual intervention.
+
+### Validation
+- `mix test` (77 tests) run after each schema change, plus manual verification that codegen clients now receive the updated contract.

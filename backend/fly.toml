@@ -13,6 +13,11 @@ primary_region = "dfw"
   PHX_SERVER = "true"
   DATABASE_PATH = "/data/backend.db"
   DNS_CLUSTER_QUERY = "gauntlet-video-server.internal"
+  AUTO_GENERATE_AUDIO = "true"
+  AUDIO_MERGE_WITH_VIDEO = "true"
+  AUDIO_FAIL_ON_ERROR = "false"
+  AUDIO_SYNC_MODE = "trim"
+  AUDIO_ERROR_STRATEGY = "continue_with_silence"
 
 [[mounts]]
   source = "physics_data"

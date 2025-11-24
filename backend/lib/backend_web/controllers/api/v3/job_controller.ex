@@ -243,6 +243,12 @@ defmodule BackendWeb.Api.V3.JobController do
                     client_id: %OpenApiSpex.Schema{type: :string, nullable: true},
                     inserted_at: %OpenApiSpex.Schema{type: :string, format: :"date-time"},
                     updated_at: %OpenApiSpex.Schema{type: :string, format: :"date-time"},
+                    storyboard: %OpenApiSpex.Schema{
+                      type: :object,
+                      nullable: true,
+                      additionalProperties: true,
+                      description: "Storyboard scenes and metadata for thumbnail selection"
+                    },
                     video_url: %OpenApiSpex.Schema{type: :string},
                     total_duration: %OpenApiSpex.Schema{type: :number, nullable: true}
                   },
@@ -309,6 +315,7 @@ defmodule BackendWeb.Api.V3.JobController do
       client_id: fetch_param(params, "client_id"),
       inserted_at: job.inserted_at,
       updated_at: job.updated_at,
+      storyboard: job.storyboard,
       total_duration: storyboard_value(job.storyboard, "total_duration"),
       video_url: "/api/v3/videos/#{job.id}/combined"
     }

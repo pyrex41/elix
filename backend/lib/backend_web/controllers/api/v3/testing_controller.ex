@@ -182,7 +182,9 @@ defmodule BackendWeb.Api.V3.TestingController do
     }
   """
   def test_multi_scene_music(conn, %{"scenes" => scenes} = params) do
-    Logger.info("[TestingController] Testing multi-scene music generation for #{length(scenes)} scenes")
+    Logger.info(
+      "[TestingController] Testing multi-scene music generation for #{length(scenes)} scenes"
+    )
 
     options = %{
       default_duration: Map.get(params, "default_duration", 4.0),
@@ -192,7 +194,7 @@ defmodule BackendWeb.Api.V3.TestingController do
     case MusicgenService.generate_music_for_scenes(scenes, options) do
       {:ok, final_audio_blob} ->
         # Calculate expected vs actual duration
-        expected_duration = Enum.sum(Enum.map(scenes, &(Map.get(&1, "duration", 4.0))))
+        expected_duration = Enum.sum(Enum.map(scenes, &Map.get(&1, "duration", 4.0)))
 
         json(conn, %{
           success: true,
@@ -220,7 +222,17 @@ defmodule BackendWeb.Api.V3.TestingController do
     }
   """
   def test_music_from_templates(conn, params) do
-    scene_types = Map.get(params, "scene_types", [:hook, :bedroom, :vanity, :tub, :living_room, :dining, :outro])
+    scene_types =
+      Map.get(params, "scene_types", [
+        :hook,
+        :bedroom,
+        :vanity,
+        :tub,
+        :living_room,
+        :dining,
+        :outro
+      ])
+
     default_duration = Map.get(params, "default_duration", 4.0)
 
     # Convert string types to atoms if needed
@@ -321,11 +333,21 @@ defmodule BackendWeb.Api.V3.TestingController do
           |> order_by([a], asc: a.inserted_at)
           |> Repo.all()
           |> Enum.map(fn asset ->
+            metadata = asset.metadata || %{}
+            tags = normalize_asset_tags(asset, metadata)
+
             %{
               id: asset.id,
               type: asset.type,
+              campaign_id: asset.campaign_id,
+              client_id: asset.client_id || campaign.client_id,
+              name: asset.name || Map.get(metadata, "name") || asset.id,
+              description: asset.description || Map.get(metadata, "description"),
+              tags: tags,
+              width: normalize_dimension(asset.width || Map.get(metadata, "width")),
+              height: normalize_dimension(asset.height || Map.get(metadata, "height")),
               source_url: asset.source_url,
-              metadata: asset.metadata || %{},
+              metadata: metadata,
               has_blob: !is_nil(asset.blob_data),
               blob_size: if(asset.blob_data, do: byte_size(asset.blob_data), else: 0),
               asset_url: "/api/v3/assets/#{asset.id}/data"
@@ -334,9 +356,8 @@ defmodule BackendWeb.Api.V3.TestingController do
 
         json(conn, %{
           success: true,
+          client_id: campaign.client_id,
           campaign_id: campaign.id,
-          campaign_name: campaign.name,
-          asset_count: length(assets),
           assets: assets
         })
     end
@@ -390,7 +411,10 @@ defmodule BackendWeb.Api.V3.TestingController do
               %{error: "Invalid prompt type. Use 'video' or 'music'"}
           end
 
-        json(conn, Map.merge(%{success: true, scene_type: scene_type, template: template.title}, result))
+        json(
+          conn,
+          Map.merge(%{success: true, scene_type: scene_type, template: template.title}, result)
+        )
     end
   end
 
@@ -409,7 +433,7 @@ defmodule BackendWeb.Api.V3.TestingController do
         scenes = get_in(job.storyboard, ["scenes"]) || []
 
         # Load assets
-        asset_ids = scenes |> Enum.flat_map(&(Map.get(&1, "asset_ids", []))) |> Enum.uniq()
+        asset_ids = scenes |> Enum.flat_map(&Map.get(&1, "asset_ids", [])) |> Enum.uniq()
 
         assets =
           if asset_ids != [] do
@@ -477,7 +501,18 @@ defmodule BackendWeb.Api.V3.TestingController do
   """
   def test_text_overlay(conn, %{"job_id" => job_id, "text" => text} = params) do
     raw_options = Map.get(params, "options", %{})
-    overlay_keys = [:font, :font_size, :color, :position, :fade_in, :fade_out, :start_time, :duration]
+
+    overlay_keys = [
+      :font,
+      :font_size,
+      :color,
+      :position,
+      :fade_in,
+      :fade_out,
+      :start_time,
+      :duration
+    ]
+
     options = atomize_keys(raw_options, overlay_keys)
 
     case Repo.get(Job, job_id) do
@@ -517,7 +552,18 @@ defmodule BackendWeb.Api.V3.TestingController do
   """
   def preview_text_overlay(conn, %{"text" => text} = params) do
     raw_options = Map.get(params, "options", %{})
-    overlay_keys = [:font, :font_size, :color, :position, :fade_in, :fade_out, :start_time, :duration]
+
+    overlay_keys = [
+      :font,
+      :font_size,
+      :color,
+      :position,
+      :fade_in,
+      :fade_out,
+      :start_time,
+      :duration
+    ]
+
     options = atomize_keys(raw_options, overlay_keys)
     preview = OverlayService.preview_text_overlay(text, options)
 
@@ -1004,15 +1050,16 @@ defmodule BackendWeb.Api.V3.TestingController do
   defp atomize_keys(value), do: value
 
   defp enrich_scenes_with_assets(scenes, assets) do
-    asset_map = Map.new(assets, fn asset ->
-      {asset.id,
-       %{
-         id: asset.id,
-         metadata: asset.metadata || %{},
-         source_url: asset.source_url,
-         asset_url: "/api/v3/assets/#{asset.id}/data"
-       }}
-    end)
+    asset_map =
+      Map.new(assets, fn asset ->
+        {asset.id,
+         %{
+           id: asset.id,
+           metadata: asset.metadata || %{},
+           source_url: asset.source_url,
+           asset_url: "/api/v3/assets/#{asset.id}/data"
+         }}
+      end)
 
     Enum.map(scenes, fn scene ->
       asset_ids = Map.get(scene, "asset_ids", [])
@@ -1034,6 +1081,37 @@ defmodule BackendWeb.Api.V3.TestingController do
       music_energy: scene["music_energy"]
     }
   end
+
+  defp normalize_asset_tags(%{tags: tags}, _metadata) when is_list(tags), do: tags
+
+  defp normalize_asset_tags(_asset, metadata) do
+    value = Map.get(metadata || %{}, "tags")
+
+    cond do
+      is_list(value) ->
+        value
+
+      is_binary(value) ->
+        case Jason.decode(value) do
+          {:ok, decoded} when is_list(decoded) -> decoded
+          _ -> []
+        end
+
+      true ->
+        []
+    end
+  end
+
+  defp normalize_dimension(value) when is_integer(value), do: value
+
+  defp normalize_dimension(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      :error -> nil
+    end
+  end
+
+  defp normalize_dimension(_), do: nil
 
   defp build_music_prompt_preview(scene) do
     case {scene["music_description"], scene["music_style"], scene["music_energy"]} do

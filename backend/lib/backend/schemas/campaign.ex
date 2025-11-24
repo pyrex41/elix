@@ -21,7 +21,7 @@ defmodule Backend.Schemas.Campaign do
 
   @doc """
   Changeset for campaign creation and updates.
-  Validates that name and brief are required.
+  Only the name and client reference are required; brief is optional.
   """
   def changeset(campaign, attrs) do
     campaign

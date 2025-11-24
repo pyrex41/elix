@@ -36,6 +36,8 @@ defmodule Backend.Schemas.Job do
   Validates type and status enums.
   """
   def changeset(job, attrs) do
+    attrs = maybe_put_default_video_name(attrs, job)
+
     job
     |> cast(attrs, [
       :type,
@@ -79,5 +81,21 @@ defmodule Backend.Schemas.Job do
   def audio_changeset(job, attrs) do
     job
     |> cast(attrs, [:audio_blob, :progress])
+  end
+
+  defp maybe_put_default_video_name(attrs, job) do
+    cond do
+      Map.has_key?(attrs, :video_name) ->
+        attrs
+
+      Map.has_key?(attrs, "video_name") ->
+        attrs
+
+      not is_nil(job.video_name) ->
+        attrs
+
+      true ->
+        Map.put(attrs, :video_name, "Untitled Video")
+    end
   end
 end

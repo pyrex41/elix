@@ -196,7 +196,10 @@ defmodule Backend.Services.OverlayService do
     |> Enum.map(fn overlay ->
       text = Map.get(overlay, "text") || Map.get(overlay, :text)
       start_time = Map.get(overlay, "start_time") || Map.get(overlay, :start_time, 0)
-      duration = Map.get(overlay, "duration") || Map.get(overlay, :duration, video_duration - start_time)
+
+      duration =
+        Map.get(overlay, "duration") || Map.get(overlay, :duration, video_duration - start_time)
+
       options = Map.get(overlay, "options") || Map.get(overlay, :options, %{})
 
       options_with_timing =
