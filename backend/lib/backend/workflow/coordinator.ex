@@ -13,7 +13,9 @@ defmodule Backend.Workflow.Coordinator do
   require Logger
   alias Backend.Repo
   alias Backend.Schemas.{Job, SubJob}
-  alias Backend.Workflow.StitchWorker
+  alias Backend.Services.MusicgenService
+  alias Backend.Workflow.{AudioWorker, StitchWorker}
+  alias Ecto.Changeset
   import Ecto.Query
 
   @pubsub_name Backend.PubSub
@@ -235,7 +237,7 @@ defmodule Backend.Workflow.Coordinator do
         changeset = Job.changeset(job, updates)
 
         case Repo.update(changeset) do
-          {:ok, _updated_job} ->
+          {:ok, updated_job} ->
             Logger.info("[Workflow.Coordinator] Job #{job_id} marked as completed")
 
             # Broadcast completion event
@@ -250,6 +252,9 @@ defmodule Backend.Workflow.Coordinator do
               state
               |> Map.update!(:active_jobs, &Map.delete(&1, job_id))
               |> Map.update!(:processing_tasks, &Map.delete(&1, job_id))
+
+            maybe_trigger_audio(updated_job)
+            maybe_merge_audio(updated_job)
 
             {:noreply, new_state}
 
@@ -560,6 +565,8 @@ defmodule Backend.Workflow.Coordinator do
 
     case Repo.update(changeset) do
       {:ok, updated_job} ->
+        maybe_start_parallel_audio(updated_job)
+
         if processing_enabled? do
           worker_pid = start_processing_task(updated_job)
 
@@ -750,6 +757,235 @@ defmodule Backend.Workflow.Coordinator do
 
   defp workflow_processing_enabled? do
     Application.get_env(:backend, :workflow_processing_enabled, true)
+  end
+
+  # Audio automation helpers
+
+  def merge_audio_if_ready(job_id) do
+    case Repo.get(Job, job_id) do
+      %Job{} = job -> maybe_merge_audio(job)
+      _ -> :ok
+    end
+  end
+
+  defp maybe_start_parallel_audio(job) do
+    cond do
+      not auto_audio_enabled?() ->
+        :ok
+
+      not job_ready_for_parallel_audio?(job) ->
+        :ok
+
+      true ->
+        Logger.info("[Workflow.Coordinator] Starting parallel audio for job #{job.id}")
+
+        job
+        |> set_audio_progress(audio_progress("audio_generation_parallel", 40, "generating"))
+
+        params =
+          audio_generation_params()
+          |> Map.put(:merge_with_video, false)
+
+        start_audio_task(job.id, params)
+    end
+  end
+
+  defp maybe_trigger_audio(job) do
+    cond do
+      not auto_audio_enabled?() ->
+        :ok
+
+      merge_audio_if_possible(job) ->
+        :ok
+
+      not job_ready_for_audio?(job) ->
+        :ok
+
+      true ->
+        Logger.info("[Workflow.Coordinator] Queuing audio generation for job #{job.id}")
+
+        job
+        |> set_audio_progress(audio_progress("audio_generation_pending", 95, "pending"))
+
+        start_audio_task(job.id, audio_generation_params())
+    end
+  end
+
+  defp job_ready_for_audio?(job) do
+    is_binary(job.result) and not is_nil(job.storyboard) and is_nil(job.audio_blob)
+  end
+
+  defp job_ready_for_parallel_audio?(job) do
+    not is_nil(job.storyboard) and is_nil(job.audio_blob)
+  end
+
+  defp start_audio_task(job_id, params) do
+    Task.start(fn ->
+      try do
+        case AudioWorker.generate_job_audio(job_id, params) do
+          {:ok, _} ->
+            Logger.info("[Workflow.Coordinator] Audio generation completed for job #{job_id}")
+
+          {:error, reason} ->
+            Logger.error(
+              "[Workflow.Coordinator] Audio generation failed for job #{job_id}: #{inspect(reason)}"
+            )
+
+            if audio_fail_on_error?() do
+              fail_job(job_id, {:audio_generation_failed, reason})
+            end
+        end
+      rescue
+        exception ->
+          Logger.error(
+            "[Workflow.Coordinator] Audio generation crashed for job #{job_id}: #{inspect(exception)}"
+          )
+
+          Logger.error(Exception.format_stacktrace(__STACKTRACE__))
+
+          if audio_fail_on_error?() do
+            fail_job(job_id, {:audio_generation_exception, exception})
+          end
+      end
+    end)
+  end
+
+  defp set_audio_progress(job, progress_update) do
+    merged_progress = merge_progress(job.progress || %{}, progress_update)
+
+    job
+    |> Changeset.change(progress: merged_progress)
+    |> Repo.update()
+
+    :ok
+  end
+
+  defp merge_progress(progress, update) do
+    Map.merge(progress, normalize_progress_fields(update))
+  end
+
+  defp audio_progress(stage, percentage, status, extra \\ %{}) do
+    extra
+    |> Map.put(:stage, stage)
+    |> Map.put(:percentage, percentage)
+    |> Map.put(:audio_status, status)
+  end
+
+  defp normalize_progress_fields(progress_data) do
+    progress_data
+    |> duplicate_progress_key(:stage, "stage")
+    |> duplicate_progress_key(:percentage, "percentage")
+    |> duplicate_progress_key(:audio_status, "audio_status")
+  end
+
+  defp duplicate_progress_key(data, atom_key, string_key) do
+    cond do
+      Map.has_key?(data, atom_key) ->
+        value = Map.get(data, atom_key)
+        Map.put(data, string_key, value)
+
+      Map.has_key?(data, string_key) ->
+        value = Map.get(data, string_key)
+        Map.put(data, atom_key, value)
+
+      true ->
+        data
+    end
+  end
+
+  defp maybe_merge_audio(job) do
+    merge_audio_if_possible(job)
+  end
+
+  defp merge_audio_if_possible(job) do
+    cond do
+      not audio_merge_with_video?() ->
+        false
+
+      not is_binary(job.result) ->
+        false
+
+      not is_binary(job.audio_blob) ->
+        false
+
+      video_with_audio?(job) ->
+        false
+
+      true ->
+        Logger.info("[Workflow.Coordinator] Merging stored audio into job #{job.id}")
+        sync_mode = audio_sync_mode()
+
+        case MusicgenService.merge_audio_with_video(job.result, job.audio_blob, %{sync_mode: sync_mode}) do
+          {:ok, merged_video} ->
+            progress_update =
+              audio_progress("audio_completed", 100, "completed_and_merged", %{
+                video_with_audio: true
+              })
+
+            updated_progress = merge_progress(job.progress || %{}, progress_update)
+
+            changeset =
+              job
+              |> Changeset.change(result: merged_video, progress: updated_progress)
+
+            case Repo.update(changeset) do
+              {:ok, _} ->
+                Logger.info("[Workflow.Coordinator] Audio merged successfully for job #{job.id}")
+                true
+
+              {:error, changeset} ->
+                Logger.error(
+                  "[Workflow.Coordinator] Failed to persist merged video for job #{job.id}: #{inspect(changeset.errors)}"
+                )
+
+                false
+            end
+
+          {:error, reason} ->
+            Logger.error(
+              "[Workflow.Coordinator] Audio/video merge failed for job #{job.id}: #{inspect(reason)}"
+            )
+
+            false
+        end
+    end
+  end
+
+  defp video_with_audio?(job) do
+    progress = job.progress || %{}
+    case Map.get(progress, :video_with_audio) || Map.get(progress, "video_with_audio") do
+      true -> true
+      _ -> false
+    end
+  end
+
+  defp auto_audio_enabled? do
+    Application.get_env(:backend, :auto_generate_audio, false)
+  end
+
+  defp audio_fail_on_error? do
+    Application.get_env(:backend, :audio_fail_on_error, false)
+  end
+
+  defp audio_merge_with_video? do
+    Application.get_env(:backend, :audio_merge_with_video, true)
+  end
+
+  defp audio_sync_mode do
+    Application.get_env(:backend, :audio_sync_mode, :trim)
+  end
+
+  defp audio_error_strategy do
+    Application.get_env(:backend, :audio_error_strategy, :continue_with_silence)
+  end
+
+  defp audio_generation_params do
+    %{
+      merge_with_video: audio_merge_with_video?(),
+      sync_mode: audio_sync_mode(),
+      error_strategy: audio_error_strategy(),
+      use_unified_generation: true
+    }
   end
 
   defp approve_job_direct(job_id) do

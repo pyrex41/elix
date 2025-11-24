@@ -46,11 +46,8 @@ defmodule Backend.Services.FfmpegService do
       # Ensure temp directory exists
       File.mkdir_p!(temp_dir)
 
-      # Sort sub_jobs by ID to maintain order
-      sorted_sub_jobs = Enum.sort_by(sub_jobs, & &1.id)
-
       file_paths =
-        sorted_sub_jobs
+        sub_jobs
         |> Enum.with_index()
         |> Enum.map(fn {sub_job, index} ->
           extract_single_blob(temp_dir, sub_job, index)

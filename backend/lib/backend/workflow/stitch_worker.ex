@@ -144,7 +144,7 @@ defmodule Backend.Workflow.StitchWorker do
     sub_jobs =
       SubJob
       |> where([s], s.job_id == ^job_id)
-      |> order_by([s], asc: s.id)
+      |> order_by([s], asc: s.inserted_at)
       |> Repo.all()
 
     if Enum.empty?(sub_jobs) do

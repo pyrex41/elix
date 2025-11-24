@@ -10,6 +10,7 @@ defmodule Backend.Workflow.AudioWorker do
   alias Backend.Services.MusicgenService
   alias Backend.Repo
   alias Backend.Schemas.Job
+  alias Backend.Workflow.Coordinator
 
   @doc """
   Generates audio for all scenes in a job with sequential chaining.
@@ -32,6 +33,12 @@ defmodule Backend.Workflow.AudioWorker do
     # Load job with scenes from storyboard
     case load_job_with_scenes(job_id) do
       {:ok, job, scenes} ->
+        update_job_progress(
+          job,
+          :in_progress,
+          audio_progress("audio_generation", 95, "generating")
+        )
+
         # Choose generation strategy
         use_unified = Map.get(audio_params, :use_unified_generation, true)
 
@@ -57,16 +64,31 @@ defmodule Backend.Workflow.AudioWorker do
                 {:ok, updated_job}
 
               {:error, reason} ->
-                update_job_progress(job, :failed, %{error: "Audio merge failed: #{reason}"})
+                update_job_progress(
+                  job,
+                  :failed,
+                  audio_progress("audio_failed", 100, "failed", %{
+                    error: "Audio merge failed: #{reason}"
+                  })
+                )
+
                 {:error, reason}
             end
 
           {:error, reason} ->
-            update_job_progress(job, :failed, %{error: "Audio generation failed: #{reason}"})
+            update_job_progress(
+              job,
+              :failed,
+              audio_progress("audio_failed", 100, "failed", %{
+                error: "Audio generation failed: #{reason}"
+              })
+            )
+
             {:error, reason}
         end
 
       {:error, reason} ->
+        mark_audio_failed(job_id, reason)
         {:error, reason}
     end
   end
@@ -346,8 +368,13 @@ defmodule Backend.Workflow.AudioWorker do
     case non_empty_segments do
       [] ->
         Logger.warning("[AudioWorker] No audio segments to merge")
-        # Update job with progress indicating no audio
-        update_job_progress(job, :completed, %{audio_status: "no_audio_generated"})
+
+        update_job_progress(
+          job,
+          :completed,
+          audio_progress("audio_skipped", 100, "skipped")
+        )
+
         {:ok, job}
 
       segments ->
@@ -374,11 +401,16 @@ defmodule Backend.Workflow.AudioWorker do
 
       video_blob ->
         # Merge audio with video
-        merge_option = Map.get(audio_params, :merge_with_video, false)
+        merge_option =
+          fetch_option(
+            audio_params,
+            :merge_with_video,
+            Application.get_env(:backend, :audio_merge_with_video, true)
+          )
 
         if merge_option do
           Logger.info("[AudioWorker] Merging audio with video")
-          sync_mode = Map.get(audio_params, :sync_mode, :trim)
+          sync_mode = fetch_option(audio_params, :sync_mode, :trim)
 
           case MusicgenService.merge_audio_with_video(video_blob, audio_blob, %{
                  sync_mode: sync_mode
@@ -402,13 +434,16 @@ defmodule Backend.Workflow.AudioWorker do
   defp update_job_with_audio(job, audio_blob) do
     # Store audio in dedicated audio_blob field
     progress = job.progress || %{}
+    timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
+    audio_size = byte_size(audio_blob)
 
-    updated_progress =
-      Map.merge(progress, %{
-        "audio_status" => "completed",
-        "audio_generated_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
-        "audio_size" => byte_size(audio_blob)
+    progress_updates =
+      audio_progress("audio_completed", 100, "completed", %{
+        audio_generated_at: timestamp,
+        audio_size: audio_size
       })
+
+    updated_progress = Map.merge(progress, progress_updates)
 
     changeset =
       Backend.Schemas.Job.audio_changeset(job, %{
@@ -418,6 +453,7 @@ defmodule Backend.Workflow.AudioWorker do
 
     case Repo.update(changeset) do
       {:ok, updated_job} ->
+        Coordinator.merge_audio_if_ready(updated_job.id)
         {:ok, updated_job}
 
       {:error, changeset} ->
@@ -428,14 +464,17 @@ defmodule Backend.Workflow.AudioWorker do
   defp update_job_with_merged_result(job, merged_video_blob, audio_blob) do
     # Store merged video in result and audio in dedicated field
     progress = job.progress || %{}
+    timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
+    audio_size = byte_size(audio_blob)
 
-    updated_progress =
-      Map.merge(progress, %{
-        "audio_status" => "completed_and_merged",
-        "audio_generated_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
-        "audio_size" => byte_size(audio_blob),
-        "video_with_audio" => true
+    progress_updates =
+      audio_progress("audio_completed", 100, "completed_and_merged", %{
+        audio_generated_at: timestamp,
+        audio_size: audio_size,
+        video_with_audio: true
       })
+
+    updated_progress = Map.merge(progress, progress_updates)
 
     changeset =
       job
@@ -456,12 +495,72 @@ defmodule Backend.Workflow.AudioWorker do
 
   defp update_job_progress(job, _status, progress_data) do
     progress = job.progress || %{}
-    updated_progress = Map.merge(progress, progress_data)
+    normalized = normalize_progress_fields(progress_data)
+    updated_progress = Map.merge(progress, normalized)
 
     changeset =
       job
       |> Ecto.Changeset.change(progress: updated_progress)
 
     Repo.update(changeset)
+  end
+
+  defp audio_progress(stage, percentage, status, extra \\ %{}) do
+    extra
+    |> Map.put(:stage, stage)
+    |> Map.put(:percentage, percentage)
+    |> Map.put(:audio_status, status)
+  end
+
+  defp normalize_progress_fields(progress_data) do
+    progress_data
+    |> duplicate_progress_key(:stage, "stage")
+    |> duplicate_progress_key(:percentage, "percentage")
+    |> duplicate_progress_key(:audio_status, "audio_status")
+  end
+
+  defp duplicate_progress_key(data, atom_key, string_key) do
+    cond do
+      Map.has_key?(data, atom_key) ->
+        Map.put(data, string_key, Map.get(data, atom_key))
+
+      Map.has_key?(data, string_key) ->
+        Map.put(data, atom_key, Map.get(data, string_key))
+
+      true ->
+        data
+    end
+  end
+
+  defp mark_audio_failed(job_id, reason) do
+    case Repo.get(Job, job_id) do
+      nil ->
+        :ok
+
+      job ->
+        update_job_progress(
+          job,
+          :failed,
+          audio_progress("audio_failed", 100, "failed", %{
+            error: format_audio_error(reason)
+          })
+        )
+    end
+  end
+
+  defp format_audio_error(reason) when is_binary(reason), do: reason
+  defp format_audio_error(reason), do: inspect(reason)
+
+  defp fetch_option(params, key, default) do
+    cond do
+      is_map(params) and Map.has_key?(params, key) ->
+        Map.get(params, key)
+
+      is_map(params) and Map.has_key?(params, Atom.to_string(key)) ->
+        Map.get(params, Atom.to_string(key))
+
+      true ->
+        default
+    end
   end
 end

@@ -142,7 +142,9 @@ Downloads the generated audio file (MP3 format).
    - Implementation: backend/lib/backend/services/audio_segment_store.ex, backend/lib/backend_web/controllers/api/v3/audio_segment_controller.ex
    - Automatically started with the supervision tree (backend/lib/backend/application.ex:17)
 
-4. **Segment Merging:**
+4. **Parallel Execution & Segment Merging:**
+   - As soon as a job enters the `:processing` state, the coordinator starts audio generation in parallel with render worker execution (`audio_generation_parallel` progress stage). This keeps the unified track ready by the time stitching finishes.
+   - If the rendered video completes before audio, the coordinator retries the merge once audio arrives; if audio finishes first, the merge is triggered as soon as the stitched MP4 exists.
    - All audio segments are merged using FFmpeg
    - Fade effects are applied between segments:
      - Fade out at the end of each segment (except last)
