@@ -8,6 +8,7 @@ defmodule Backend.Services.AiService do
 
   @group_assignment_limit 40
   @group_selection_concurrency 4
+  @max_ai_retries 3
 
   @doc """
   Generates scene descriptions from campaign assets using xAI/Grok API.
@@ -31,17 +32,21 @@ defmodule Backend.Services.AiService do
 
       api_key ->
         Logger.info("[AiService] Using xAI API to generate scenes")
-        # For image_pairs, group assets and select best groups
-        generation_result =
+
+        request_fun =
           case job_type do
             :image_pairs ->
-              call_xai_api_for_group_selection(assets, campaign_brief, options, api_key)
+              fn attempt ->
+                call_xai_api_for_group_selection(assets, campaign_brief, options, api_key, attempt)
+              end
 
             _ ->
-              call_xai_api(assets, campaign_brief, job_type, options, api_key)
+              fn attempt ->
+                call_xai_api(assets, campaign_brief, job_type, options, api_key, attempt)
+              end
           end
 
-        case generation_result do
+        case retry_xai(request_fun) do
           {:ok, scenes} ->
             {:ok, scenes}
 
@@ -116,7 +121,7 @@ defmodule Backend.Services.AiService do
     Application.get_env(:backend, :xai_api_key)
   end
 
-  defp call_xai_api(assets, campaign_brief, job_type, options, api_key) do
+  defp call_xai_api(assets, campaign_brief, job_type, options, api_key, attempt) do
     prompt = build_prompt(assets, campaign_brief, job_type, options)
 
     # xAI/Grok API endpoint
@@ -148,16 +153,20 @@ defmodule Backend.Services.AiService do
         parse_ai_response(response_body, job_type)
 
       {:ok, %{status: status, body: body}} ->
-        Logger.error("[AiService] xAI API returned status #{status}: #{inspect(body)}")
+        Logger.error(
+          "[AiService] xAI API returned status #{status} on attempt #{attempt}: #{inspect(body)}"
+        )
         {:error, "API request failed with status #{status}"}
 
       {:error, exception} ->
-        Logger.error("[AiService] xAI API request failed: #{inspect(exception)}")
+        Logger.error(
+          "[AiService] xAI API request failed on attempt #{attempt}: #{inspect(exception)}"
+        )
         {:error, Exception.message(exception)}
     end
   end
 
-  defp call_xai_api_for_group_selection(assets, campaign_brief, options, api_key) do
+  defp call_xai_api_for_group_selection(assets, campaign_brief, options, api_key, attempt) do
     # Group assets by category
     grouped_assets = group_assets_by_category(assets)
     num_pairs = Map.get(options, "num_pairs", Map.get(options, :num_pairs, 4))
@@ -197,11 +206,15 @@ defmodule Backend.Services.AiService do
         parse_group_selection_response(response_body, grouped_assets, options)
 
       {:ok, %{status: status, body: body}} ->
-        Logger.error("[AiService] xAI API returned status #{status}: #{inspect(body)}")
+        Logger.error(
+          "[AiService] xAI API returned status #{status} on attempt #{attempt}: #{inspect(body)}"
+        )
         {:error, "API request failed with status #{status}"}
 
       {:error, exception} ->
-        Logger.error("[AiService] xAI API request failed: #{inspect(exception)}")
+        Logger.error(
+          "[AiService] xAI API request failed on attempt #{attempt}: #{inspect(exception)}"
+        )
         {:error, Exception.message(exception)}
     end
   end
@@ -266,6 +279,8 @@ defmodule Backend.Services.AiService do
     Each scene should flow naturally and align with the campaign brief.
     """
 
+    structured = structured_output_instructions(job_type)
+
     case job_type do
       :property_photos ->
         property_types = Map.get(options, :property_types, [])
@@ -276,12 +291,40 @@ defmodule Backend.Services.AiService do
         Property Types: #{Enum.join(property_types, ", ")}
 
         Ensure each scene type matches one of the allowed property types.
+
+        #{structured}
         """
 
       :image_pairs ->
-        base_prompt
+        """
+        #{base_prompt}
+
+        #{structured}
+        """
     end
   end
+
+  defp structured_output_instructions(:image_pairs) do
+    """
+    Structured Output Requirements:
+    - Respond ONLY with a JSON array (no markdown, code fences, or prose).
+    - Each element must include: "title" (string), "description" (string), "duration" (integer seconds), "transition" (string), and "scene_type" (string describing the focus of the scene).
+    - Duration must be between 3 and 12 seconds. Use whole numbers.
+    - Do not include any additional commentary outside the JSON array.
+    """
+  end
+
+  defp structured_output_instructions(:property_photos) do
+    """
+    Structured Output Requirements:
+    - Respond ONLY with a JSON array (no markdown, code fences, or prose).
+    - Each element must include: "title" (string), "description" (string), "duration" (integer seconds), "transition" (string), and "scene_type" (string that matches one of the provided property types).
+    - You may include optional arrays like "highlights" when useful, but stay within valid JSON.
+    - Duration must be between 3 and 12 seconds. Use whole numbers.
+    """
+  end
+
+  defp structured_output_instructions(_), do: structured_output_instructions(:image_pairs)
 
   defp parse_ai_response(response_body, job_type) do
     try do
@@ -1515,5 +1558,25 @@ defmodule Backend.Services.AiService do
       end)
 
     {:ok, scenes}
+  end
+
+  defp retry_xai(fun, attempt \\ 1)
+
+  defp retry_xai(fun, attempt) when attempt <= @max_ai_retries do
+    case fun.(attempt) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, reason} ->
+        if attempt < @max_ai_retries do
+          Logger.warning(
+            "[AiService] AI attempt #{attempt} failed: #{inspect(reason)}. Retrying..."
+          )
+
+          retry_xai(fun, attempt + 1)
+        else
+          {:error, reason}
+        end
+    end
   end
 end
