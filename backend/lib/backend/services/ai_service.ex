@@ -6,6 +6,9 @@ defmodule Backend.Services.AiService do
   require Logger
   alias Backend.Templates.SceneTemplates
 
+  @group_assignment_limit 40
+  @group_selection_concurrency 4
+
   @doc """
   Generates scene descriptions from campaign assets using xAI/Grok API.
 
@@ -65,8 +68,29 @@ defmodule Backend.Services.AiService do
         available_types = extract_scene_types_from_assets(assets)
         templates = SceneTemplates.adapt_to_scene_count(scene_count, available_types)
 
-        # Call LMM to select best pairs for each scene
-        call_xai_for_image_pair_selection(assets, campaign_brief, templates, options, api_key)
+        grouped_assets =
+          assets
+          |> group_assets_by_category()
+          |> Map.reject(fn {_name, group_assets} -> length(group_assets) < 2 end)
+
+        case call_xai_for_grouped_image_selection(
+               assets,
+               grouped_assets,
+               campaign_brief,
+               templates,
+               options,
+               api_key
+             ) do
+          {:ok, scenes} ->
+            {:ok, scenes}
+
+          {:error, reason} ->
+            Logger.warning(
+              "[AiService] Grouped image selection failed (#{inspect(reason)}), falling back to legacy prompt"
+            )
+
+            call_xai_for_image_pair_selection(assets, campaign_brief, templates, options, api_key)
+        end
     end
   end
 
@@ -416,19 +440,29 @@ defmodule Backend.Services.AiService do
   defp group_assets_by_category(assets) do
     assets
     |> Enum.group_by(fn asset ->
-      case asset.metadata do
-        %{"original_name" => name} when is_binary(name) ->
-          extract_group_name(name)
+      cond do
+        is_list(asset.tags) and asset.tags != [] ->
+          asset.tags
+          |> List.first()
+          |> extract_group_name()
 
-        %{} ->
-          "Uncategorized"
+        is_binary(asset.name) and asset.name != "" ->
+          extract_group_name(asset.name)
 
-        _ ->
+        match?(%{"original_name" => name} when is_binary(name), asset.metadata || %{}) ->
+          extract_group_name(asset.metadata["original_name"])
+
+        match?(%{"originalName" => name} when is_binary(name), asset.metadata || %{}) ->
+          extract_group_name(asset.metadata["originalName"])
+
+        true ->
           "Uncategorized"
       end
     end)
     |> Map.reject(fn {_key, values} -> length(values) < 2 end)
   end
+
+  defp extract_group_name(nil), do: "Uncategorized"
 
   defp extract_group_name(asset_name) do
     # Strip the last number from asset name
@@ -527,13 +561,630 @@ defmodule Backend.Services.AiService do
 
   # Image pair selection helpers
 
+  defp call_xai_for_grouped_image_selection(
+         _assets,
+         grouped_assets,
+         _campaign_brief,
+         _templates,
+         _options,
+         _api_key
+       )
+       when grouped_assets == %{} do
+    {:error, :no_grouped_assets}
+  end
+
+  defp call_xai_for_grouped_image_selection(
+         _assets,
+         grouped_assets,
+         campaign_brief,
+         templates,
+         options,
+         api_key
+       ) do
+    limited_groups =
+      grouped_assets
+      |> Enum.sort_by(fn {name, _} -> name end)
+      |> Enum.take(@group_assignment_limit)
+
+    with {:ok, assignments} <-
+           assign_groups_to_scenes(templates, limited_groups, campaign_brief, api_key),
+         {:ok, scene_jobs} <- build_scene_group_jobs(templates, assignments, grouped_assets),
+         {:ok, selections} <-
+           select_images_for_scene_jobs(scene_jobs, campaign_brief, options, api_key) do
+      {:ok, build_scenes_from_grouped_selection(templates, selections)}
+    else
+      {:error, reason} ->
+        Logger.warning("[AiService] Grouped pipeline failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp assign_groups_to_scenes(_templates, [], _campaign_brief, _api_key) do
+    {:error, :no_groups_available}
+  end
+
+  defp assign_groups_to_scenes(templates, grouped_assets, campaign_brief, api_key) do
+    prompt = build_group_assignment_prompt(templates, grouped_assets, campaign_brief)
+
+    body = %{
+      "messages" => [
+        %{
+          "role" => "system",
+          "content" => get_group_assignment_system_prompt()
+        },
+        %{
+          "role" => "user",
+          "content" => prompt
+        }
+      ],
+      "model" => "grok-4-1-fast-non-reasoning",
+      "stream" => false,
+      "temperature" => 0.2
+    }
+
+    case Req.post("https://api.x.ai/v1/chat/completions",
+           json: body,
+           headers: [
+             {"Authorization", "Bearer #{api_key}"},
+             {"Content-Type", "application/json"}
+           ],
+           receive_timeout: 60_000
+         ) do
+      {:ok, %{status: 200, body: response_body}} ->
+        parse_group_assignment_response(response_body, templates)
+
+      {:ok, %{status: status, body: body}} ->
+        Logger.error(
+          "[AiService] Group assignment failed with status #{status}: #{inspect(body)}"
+        )
+
+        {:error, "Group assignment failed with status #{status}"}
+
+      {:error, exception} ->
+        Logger.error("[AiService] Group assignment request failed: #{inspect(exception)}")
+        {:error, Exception.message(exception)}
+    end
+  end
+
+  defp get_group_assignment_system_prompt do
+    """
+    You orchestrate a luxury property video storyboard. Marketing already defined scene templates
+    (hook, bedroom, bathroom, etc.). Your job is to map each scene template to the best available
+    photo group so later steps can stay within that group.
+
+    Rules:
+    - Use only the groups that are listed.
+    - Prefer groups whose tags/metadata match the scene type and camera direction.
+    - Ensure the group has at least 2 photos.
+    - Provide good variety (don't pick seven bedrooms unless required).
+
+    Output contract:
+    Return a JSON array where each item looks like:
+    {
+      "scene_type": "hook",
+      "group_name": "Exterior 1"
+    }
+
+    Include every scene in the storyboard (same order as provided).
+    """
+  end
+
+  defp build_group_assignment_prompt(templates, grouped_assets, campaign_brief) do
+    scenes =
+      templates
+      |> Enum.map(&format_scene_requirement/1)
+      |> Enum.join("\n\n")
+
+    groups =
+      grouped_assets
+      |> Enum.map(&format_group_summary/1)
+      |> Enum.join("\n\n")
+
+    """
+    Campaign Brief:
+    #{campaign_brief || "N/A"}
+
+    Scene templates needing coverage:
+    #{scenes}
+
+    Available photo groups (choose exactly one per scene, keep pairs within a group):
+    #{groups}
+
+    Respond with JSON only. Each scene_type from the list above must map to one of the provided group names.
+    If a perfect match does not exist, pick the closest viable group that still has at least 2 photos.
+    """
+  end
+
+  defp format_group_summary({group_name, assets}) do
+    tags = extract_scene_types_from_assets(assets)
+    highlights = group_metadata_highlights(assets)
+
+    """
+    Group: #{group_name}
+      • image_count: #{length(assets)}
+      • dominant_tags: #{format_list(tags)}
+      • metadata_highlights: #{format_list(highlights)}
+    """
+  end
+
+  defp group_metadata_highlights(assets) do
+    assets
+    |> Enum.flat_map(fn asset ->
+      metadata = asset.metadata || %{}
+
+      Map.take(metadata, ["scene_type", "room_type", "view", "style", "keywords"])
+      |> Enum.map(fn {k, v} -> "#{k}=#{inspect(v)}" end)
+    end)
+    |> Enum.uniq()
+    |> Enum.take(6)
+  end
+
+  defp parse_group_assignment_response(response_body, templates) do
+    scene_keys = Enum.map(templates, &to_string(&1.type))
+
+    content =
+      response_body
+      |> Map.get("choices", [])
+      |> List.first()
+      |> Map.get("message", %{})
+      |> Map.get("content", "")
+
+    case extract_json_array_from_content(content) do
+      {:ok, array} ->
+        assignments =
+          array
+          |> Enum.reduce(%{}, fn
+            %{"scene_type" => scene_type, "group_name" => group_name}, acc
+            when is_binary(scene_type) and is_binary(group_name) ->
+              if scene_type in scene_keys do
+                Map.put_new(acc, scene_type, group_name)
+              else
+                acc
+              end
+
+            _item, acc ->
+              acc
+          end)
+
+        {:ok, assignments}
+
+      {:error, reason} ->
+        Logger.error("[AiService] Failed parsing group assignment JSON: #{inspect(reason)}")
+        {:error, :invalid_group_assignment}
+    end
+  end
+
+  defp build_scene_group_jobs(templates, assignments, grouped_assets) do
+    templates
+    |> Enum.reduce_while({[], MapSet.new()}, fn template, {acc, used_groups} ->
+      scene_key = to_string(template.type)
+      preferred_group = Map.get(assignments, scene_key)
+
+      case pick_group_for_scene(template, preferred_group, grouped_assets, used_groups) do
+        {:ok, group_name, assets, updated_used} ->
+          job = %{template: template, group_name: group_name, assets: assets}
+          {:cont, {[job | acc], updated_used}}
+
+        {:error, reason} ->
+          {:halt, {:error, {reason, scene_key}}}
+      end
+    end)
+    |> case do
+      {:error, reason} -> {:error, reason}
+      {jobs, _used} -> {:ok, Enum.reverse(jobs)}
+    end
+  end
+
+  defp pick_group_for_scene(template, group_name, grouped_assets, used_groups)
+       when is_binary(group_name) do
+    case Map.get(grouped_assets, group_name) do
+      nil ->
+        select_best_group(template, grouped_assets, used_groups, true)
+
+      assets when length(assets) >= 2 ->
+        {:ok, group_name, assets, MapSet.put(used_groups, group_name)}
+
+      _ ->
+        select_best_group(template, grouped_assets, used_groups, true)
+    end
+  end
+
+  defp pick_group_for_scene(template, _preferred_group, grouped_assets, used_groups) do
+    case select_best_group(template, grouped_assets, used_groups, true) do
+      {:ok, name, assets} ->
+        {:ok, name, assets, MapSet.put(used_groups, name)}
+
+      :none ->
+        case select_best_group(template, grouped_assets, used_groups, false) do
+          {:ok, name, assets} ->
+            {:ok, name, assets, used_groups}
+
+          :none ->
+            {:error, :no_group_available}
+        end
+    end
+  end
+
+  defp select_best_group(template, grouped_assets, used_groups, unused_only) do
+    grouped_assets
+    |> Enum.flat_map(fn {name, assets} ->
+      cond do
+        length(assets) < 2 ->
+          []
+
+        unused_only and MapSet.member?(used_groups, name) ->
+          []
+
+        true ->
+          score =
+            case template do
+              nil -> length(assets)
+              _ -> score_group_match(template, assets)
+            end
+
+          [{name, assets, score}]
+      end
+    end)
+    |> Enum.sort_by(fn {_name, _assets, score} -> score end, :desc)
+    |> List.first()
+    |> case do
+      {name, assets, _score} -> {:ok, name, assets}
+      nil -> :none
+    end
+  end
+
+  defp score_group_match(template, assets) do
+    criteria = template.asset_criteria || %{}
+    terms = group_terms_from_assets(assets)
+
+    base =
+      0
+      |> maybe_add_score(terms, criteria[:scene_types], 8)
+      |> maybe_add_score(terms, criteria[:preferred_tags], 5)
+      |> maybe_add_score(terms, criteria[:keywords], 3)
+
+    base + min(length(assets), 5)
+  end
+
+  defp maybe_add_score(score, _terms, nil, _addition), do: score
+
+  defp maybe_add_score(score, terms, list, addition) do
+    normalized =
+      list
+      |> Enum.map(&normalize_term/1)
+      |> Enum.reject(&(&1 == ""))
+
+    if Enum.any?(normalized, &MapSet.member?(terms, &1)) do
+      score + addition
+    else
+      score
+    end
+  end
+
+  defp group_terms_from_assets(assets) do
+    assets
+    |> Enum.flat_map(fn asset ->
+      metadata = asset.metadata || %{}
+
+      tags =
+        cond do
+          is_list(asset.tags) -> asset.tags
+          is_binary(asset.tags) -> [asset.tags]
+          true -> []
+        end
+
+      meta_tags =
+        case metadata do
+          %{"tags" => meta_list} when is_list(meta_list) ->
+            meta_list
+
+          %{"tags" => meta_json} when is_binary(meta_json) ->
+            case Jason.decode(meta_json) do
+              {:ok, decoded} when is_list(decoded) -> decoded
+              _ -> []
+            end
+
+          _ ->
+            []
+        end
+
+      keywords =
+        case metadata do
+          %{"keywords" => kw_list} when is_list(kw_list) ->
+            kw_list
+
+          %{"keywords" => kw_string} when is_binary(kw_string) ->
+            kw_string |> String.split(",", trim: true)
+
+          _ ->
+            []
+        end
+
+      scene_type =
+        case metadata["scene_type"] do
+          value when is_binary(value) -> [value]
+          _ -> []
+        end
+
+      room_type =
+        case metadata["room_type"] do
+          value when is_binary(value) -> [value]
+          _ -> []
+        end
+
+      tags ++ meta_tags ++ keywords ++ scene_type ++ room_type
+    end)
+    |> Enum.map(&normalize_term/1)
+    |> Enum.reject(&(&1 == ""))
+    |> MapSet.new()
+  end
+
+  defp normalize_term(term) when is_binary(term), do: term |> String.trim() |> String.downcase()
+  defp normalize_term(term) when is_atom(term), do: term |> Atom.to_string() |> normalize_term()
+  defp normalize_term(_), do: ""
+
+  defp select_images_for_scene_jobs(scene_jobs, campaign_brief, options, api_key) do
+    scene_jobs
+    |> Task.async_stream(
+      fn %{template: template, group_name: group_name, assets: assets} ->
+        select_images_for_scene_from_group(
+          template,
+          group_name,
+          assets,
+          campaign_brief,
+          options,
+          api_key
+        )
+      end,
+      max_concurrency: @group_selection_concurrency,
+      timeout: 90_000
+    )
+    |> Enum.reduce_while({:ok, []}, fn
+      {:ok, {:ok, selection}}, {:ok, acc} ->
+        {:cont, {:ok, [selection | acc]}}
+
+      {:ok, {:error, reason}}, _ ->
+        {:halt, {:error, reason}}
+
+      {:exit, reason}, _ ->
+        {:halt, {:error, reason}}
+    end)
+    |> case do
+      {:ok, selections} -> {:ok, Enum.reverse(selections)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp select_images_for_scene_from_group(
+         template,
+         group_name,
+         assets,
+         campaign_brief,
+         options,
+         api_key
+       ) do
+    prompt = build_single_group_scene_prompt(template, group_name, assets, campaign_brief)
+
+    body = %{
+      "messages" => [
+        %{
+          "role" => "system",
+          "content" => get_single_group_selection_system_prompt()
+        },
+        %{
+          "role" => "user",
+          "content" => prompt
+        }
+      ],
+      "model" => Map.get(options, :video_pair_model, "grok-4-1-fast-non-reasoning"),
+      "stream" => false,
+      "temperature" => 0.3
+    }
+
+    case Req.post("https://api.x.ai/v1/chat/completions",
+           json: body,
+           headers: [
+             {"Authorization", "Bearer #{api_key}"},
+             {"Content-Type", "application/json"}
+           ],
+           receive_timeout: 60_000
+         ) do
+      {:ok, %{status: 200, body: response_body}} ->
+        case parse_single_group_selection_response(response_body) do
+          {:ok, selection} ->
+            {:ok, selection}
+
+          {:error, reason} ->
+            Logger.warning(
+              "[AiService] Invalid group selection response for #{group_name}: #{inspect(reason)}"
+            )
+
+            {:ok, fallback_group_selection(assets, "invalid LLM response")}
+        end
+
+      {:ok, %{status: status, body: body}} ->
+        Logger.error(
+          "[AiService] Group selection failed with status #{status} for #{group_name}: #{inspect(body)}"
+        )
+
+        {:ok, fallback_group_selection(assets, "status #{status}")}
+
+      {:error, exception} ->
+        Logger.error(
+          "[AiService] Group selection request errored for #{group_name}: #{inspect(exception)}"
+        )
+
+        {:ok, fallback_group_selection(assets, Exception.message(exception))}
+    end
+  end
+
+  defp get_single_group_selection_system_prompt do
+    """
+    You are selecting FIRST and LAST frames for a single storyboard scene. All photos you receive
+    belong to the same tag group, so both picks must come from that list.
+
+    Requirements:
+    - Respect the provided scene motion goal and camera notes.
+    - Choose two distinct image IDs from the group (unless only one image is available).
+    - Explain why the pair fits, referencing metadata (room type, lighting, etc.).
+
+    Respond with a single JSON object:
+    {
+      "first_image_id": "uuid",
+      "last_image_id": "uuid",
+      "reasoning": "short explanation"
+    }
+    """
+  end
+
+  defp build_single_group_scene_prompt(template, group_name, assets, campaign_brief) do
+    asset_catalog =
+      assets
+      |> Enum.map(&format_asset_entry/1)
+      |> Enum.join("\n")
+
+    """
+    Campaign Brief:
+    #{campaign_brief || "N/A"}
+
+    Scene details:
+    #{format_scene_requirement(template)}
+
+    Photo group "#{group_name}" (#{length(assets)} options):
+    #{asset_catalog}
+
+    Instructions:
+    - Use ONLY images from this group.
+    - Select two complementary images as FIRST and LAST frame.
+    - Ensure they support the motion goal (#{template.motion_goal}) and camera move (#{template.camera_movement}).
+    - Provide concise reasoning referencing metadata.
+    """
+  end
+
+  defp parse_single_group_selection_response(response_body) do
+    content =
+      response_body
+      |> Map.get("choices", [])
+      |> List.first()
+      |> Map.get("message", %{})
+      |> Map.get("content", "")
+
+    with {:ok, %{"first_image_id" => first, "last_image_id" => last} = obj}
+         when is_binary(first) and
+                is_binary(last) <-
+           extract_json_object_from_content(content) do
+      {:ok,
+       %{
+         first_image_id: first,
+         last_image_id: last,
+         reasoning: Map.get(obj, "reasoning", "")
+       }}
+    else
+      _ -> {:error, :invalid_selection_payload}
+    end
+  end
+
+  defp fallback_group_selection([single], reason) do
+    %{
+      first_image_id: single.id,
+      last_image_id: single.id,
+      reasoning: "Fallback (single image) due to #{reason}"
+    }
+  end
+
+  defp fallback_group_selection(assets, reason) do
+    first = List.first(assets)
+    last = List.last(assets) || first
+
+    %{
+      first_image_id: first.id,
+      last_image_id: last.id,
+      reasoning: "Fallback pair chosen locally due to #{reason}"
+    }
+  end
+
+  defp build_scenes_from_grouped_selection(templates, selections) do
+    templates
+    |> Enum.zip(selections)
+    |> Enum.map(fn {template, selection} ->
+      video_prompt = template.video_prompt |> String.trim()
+
+      %{
+        "title" => template.title,
+        "description" => video_prompt,
+        "prompt" => video_prompt,
+        "duration" => template.default_duration,
+        "time_start" => template.time_start,
+        "time_end" => template.time_end,
+        "transition" => "fade",
+        "scene_type" => to_string(template.type),
+        "camera_movement" => to_string(template.camera_movement),
+        "motion_goal" => template.motion_goal,
+        "asset_ids" => [selection.first_image_id, selection.last_image_id],
+        "music_description" => template.music_description,
+        "music_style" => template.music_style,
+        "music_energy" => template.music_energy,
+        "selection_reasoning" => selection.reasoning
+      }
+    end)
+  end
+
+  defp extract_json_array_from_content(content) when is_binary(content) do
+    case Regex.run(~r/\[[\s\S]*?\]/, content) do
+      [json_str] ->
+        case Jason.decode(json_str) do
+          {:ok, value} when is_list(value) -> {:ok, value}
+          error -> error
+        end
+
+      _ ->
+        case Jason.decode(content) do
+          {:ok, value} when is_list(value) -> {:ok, value}
+          {:ok, %{"items" => value}} when is_list(value) -> {:ok, value}
+          _ -> {:error, :no_json_array}
+        end
+    end
+  end
+
+  defp extract_json_object_from_content(content) when is_binary(content) do
+    case Regex.run(~r/\{[\s\S]*?\}/, content) do
+      [json_str] ->
+        case Jason.decode(json_str) do
+          {:ok, value} when is_map(value) -> {:ok, value}
+          error -> error
+        end
+
+      _ ->
+        case Jason.decode(content) do
+          {:ok, value} when is_map(value) -> {:ok, value}
+          _ -> {:error, :no_json_object}
+        end
+    end
+  end
+
   defp extract_scene_types_from_assets(assets) do
     assets
     |> Enum.flat_map(fn asset ->
-      case asset.metadata do
-        %{"scene_type" => type} when is_binary(type) -> [type]
-        %{"tags" => tags} when is_list(tags) -> tags
-        _ -> []
+      metadata = asset.metadata || %{}
+
+      cond do
+        is_list(asset.tags) and asset.tags != [] ->
+          asset.tags
+
+        match?(%{"scene_type" => type} when is_binary(type), metadata) ->
+          [metadata["scene_type"]]
+
+        match?(%{"tags" => tags} when is_list(tags), metadata) ->
+          metadata["tags"]
+
+        match?(%{"tags" => tags} when is_binary(tags), metadata) ->
+          case Jason.decode(metadata["tags"]) do
+            {:ok, decoded} when is_list(decoded) -> decoded
+            _ -> []
+          end
+
+        true ->
+          []
       end
     end)
     |> Enum.uniq()
@@ -582,89 +1233,156 @@ defmodule Backend.Services.AiService do
 
   defp get_image_pair_selection_system_prompt do
     """
-    You are an expert luxury real estate video production assistant specializing in selecting
-    the perfect image pairs for cinematic property showcase videos.
+    You are the senior curator for a luxury lodging video pipeline. Marketing already defined a
+    storyboard with explicit camera moves per scene. Your job is to study dozens of crawled photos
+    (each photo includes tags/metadata) and pick the best FIRST and LAST image for every scene.
 
-    Your task: Analyze property photos with their metadata and select the best FIRST and LAST
-    image for each scene type to create smooth, cinematic transitions.
+    Guidelines:
+    - Scenes arrive in a fixed order. Produce exactly one recommendation per scene, in the same order.
+    - Each scene needs two unique photos (FIRST + LAST) that feel like a natural transition.
+    - Never reuse an image across scenes unless we explicitly tell you there are not enough options.
+    - Use the metadata (room_type, tags, keywords, capture_notes, etc.) plus the described motion goal
+      to justify your pick.
+    - Favor landscape/horizontal images, clean compositions, and matching lighting between FIRST/LAST.
+    - If a scene references "requires_pairs", prioritize before/after or matching angles for that pair.
 
-    For each scene type, you must select:
-    1. FIRST image: The starting frame for the video transition
-    2. LAST image: The ending frame for the video transition
-
-    Selection criteria:
-    - Images must match the scene type (e.g., bedroom photos for bedroom scene)
-    - FIRST and LAST images should have complementary composition for smooth camera movement
-    - Consider lighting, angle, and visual continuity
-    - Prioritize high-quality, well-lit images
-    - Ensure variety across all scenes (don't reuse same images)
-
-    Return ONLY a JSON array with this structure:
+    Response contract:
+    Return ONLY a JSON array (no prose) with one object per scene, e.g.
     [
       {
         "scene_type": "hook",
-        "first_image_id": "uuid-of-first-image",
-        "last_image_id": "uuid-of-last-image",
-        "reasoning": "Brief explanation of why these images work well together"
+        "first_image_id": "uuid",
+        "last_image_id": "uuid",
+        "reasoning": "Short explanation referencing metadata that proves why the pair works"
       }
     ]
+
+    The reasoning string should mention concrete cues (e.g., "both tagged master_bedroom", "sunset lighting")
+    so downstream reviewers can understand the pairing.
     """
   end
 
   defp build_image_pair_selection_prompt(assets, campaign_brief, templates, _options) do
-    # Build asset catalog with metadata
     asset_catalog =
       assets
-      |> Enum.map(fn asset ->
-        metadata_str =
-          case asset.metadata do
-            %{} = meta ->
-              meta
-              |> Enum.map(fn {k, v} -> "#{k}: #{inspect(v)}" end)
-              |> Enum.join(", ")
-
-            _ ->
-              "No metadata"
-          end
-
-        """
-        - ID: #{asset.id}
-          Type: #{asset.type}
-          Metadata: {#{metadata_str}}
-        """
-      end)
+      |> Enum.map(&format_asset_entry/1)
       |> Enum.join("\n")
 
-    # Build scene type requirements
-    scene_requirements =
+    scene_brief =
       templates
-      |> Enum.map(fn template ->
-        criteria = template.asset_criteria
-
-        """
-        Scene #{template.order}: #{template.title} (#{template.subtitle})
-        - Type: #{template.type}
-        - Duration: #{template.default_duration}s
-        - Camera Movement: #{template.camera_movement}
-        - Looking for: #{Enum.join(criteria.keywords, ", ")}
-        - Scene types: #{Enum.join(criteria.scene_types, ", ")}
-        """
-      end)
+      |> Enum.map(&format_scene_requirement/1)
       |> Enum.join("\n\n")
 
     """
-    Campaign Brief: #{campaign_brief}
+    Campaign Brief:
+    #{campaign_brief || "N/A"}
 
-    AVAILABLE IMAGES (#{length(assets)} total):
+    Photo Catalog (#{length(assets)} crawled images):
     #{asset_catalog}
 
-    SCENE REQUIREMENTS (#{length(templates)} scenes):
-    #{scene_requirements}
+    Storyboard + Direction (#{length(templates)} scenes in order):
+    #{scene_brief}
 
-    Please analyze all available images and select the best FIRST and LAST image for each scene type.
-    Each image should only be used once across all scenes.
-    Ensure smooth visual flow and narrative progression throughout the video.
+    Instructions:
+    - Output #{length(templates)} objects in the exact scene order above (typically 7 scenes totalling ~10s).
+    - Choose 2 UNIQUE images per scene (FIRST + LAST) → #{length(templates) * 2} total images.
+    - Respect each scene's motion goal, camera move, and asset guidance.
+    - Reference the metadata fields shown above when explaining your reasoning.
+    - Prefer images tagged with the requested room/feature; skip mismatched rooms even if attractive.
+    - If options are sparse, note it in reasoning but still pick the best available pair.
+    - Respond with JSON only. No commentary outside the array.
     """
+  end
+
+  defp format_asset_entry(asset) do
+    metadata_str =
+      case asset.metadata do
+        %{} = meta ->
+          meta
+          |> Enum.map(fn {k, v} -> "#{k}=#{inspect(v)}" end)
+          |> Enum.join(", ")
+
+        _ ->
+          "no metadata"
+      end
+
+    type_label =
+      asset.type
+      |> case do
+        nil -> "unknown"
+        value -> to_string(value)
+      end
+
+    """
+    - id=#{asset.id}
+      type=#{type_label}
+      metadata={#{metadata_str}}
+    """
+  end
+
+  defp format_scene_requirement(template) do
+    criteria = template.asset_criteria || %{}
+
+    """
+    Scene #{template.order}: #{template.title} — #{template.subtitle}
+      • Scene key: #{template.type}
+      • Timecode: #{format_timecode(template.time_start)} → #{format_timecode(template.time_end)}
+      • Duration: #{format_duration(template.default_duration)}
+      • Motion goal: #{template.motion_goal}
+      • Camera move: #{template.camera_movement}
+      • Video prompt reference:
+        #{template.video_prompt |> String.trim()}
+      • Asset guidance:
+          - Scene types: #{format_list(criteria[:scene_types])}
+          - Preferred tags: #{format_list(criteria[:preferred_tags])}
+          - Keywords: #{format_list(criteria[:keywords])}
+          - Requires before/after pair?: #{format_boolean(criteria[:requires_pairs])}
+    """
+  end
+
+  defp format_timecode(nil), do: "n/a"
+
+  defp format_timecode(seconds) when is_number(seconds) do
+    minutes = trunc(seconds / 60)
+    secs = seconds - minutes * 60
+
+    formatted_secs =
+      secs
+      |> :io_lib.format("~05.2f", [secs])
+      |> IO.iodata_to_binary()
+
+    "#{pad2(minutes)}:#{formatted_secs}"
+  end
+
+  defp format_duration(nil), do: "n/a"
+
+  defp format_duration(value) when is_number(value) do
+    value
+    |> :io_lib.format("~.2f s", [value])
+    |> IO.iodata_to_binary()
+  end
+
+  defp format_list(nil), do: "n/a"
+  defp format_list([]), do: "n/a"
+
+  defp format_list(list) when is_list(list) do
+    list
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&to_string/1)
+    |> case do
+      [] -> "n/a"
+      values -> Enum.join(values, ", ")
+    end
+  end
+
+  defp format_boolean(true), do: "yes"
+  defp format_boolean(false), do: "no"
+  defp format_boolean(_), do: "optional"
+
+  defp pad2(int) do
+    int
+    |> Integer.to_string()
+    |> String.pad_leading(2, "0")
   end
 
   defp parse_image_pair_selection_response(response_body, templates, _assets) do
