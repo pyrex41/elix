@@ -56,7 +56,7 @@ defmodule Backend.Workflow.StitchWorker do
          :ok <- cleanup(temp_dir) do
       Logger.info("[StitchWorker] Successfully completed stitching for job #{job_id}")
 
-      if Coordinator.auto_audio_enabled?() do
+      if auto_audio_enabled?() do
         case Coordinator.merge_audio_if_ready(job_id) do
           true ->
             Logger.info("[StitchWorker] Audio merged immediately after stitching for job #{job_id}")
@@ -121,7 +121,7 @@ defmodule Backend.Workflow.StitchWorker do
          {:ok, concat_file} <- create_concat_file(temp_dir, video_files),
          {:ok, output_file} <- stitch_videos(concat_file, temp_dir),
          {:ok, result_blob} <- read_result(output_file),
-         {:ok, job} <-
+         {:ok, _job} <-
            save_partial_result(job, result_blob, length(valid_sub_jobs), length(sub_jobs)),
          :ok <- cleanup(temp_dir) do
       Logger.info(
@@ -420,5 +420,9 @@ defmodule Backend.Workflow.StitchWorker do
       :output_file_stat_failed -> "Failed to verify output file"
       other -> inspect(other)
     end
+  end
+
+  defp auto_audio_enabled? do
+    Application.get_env(:backend, :auto_generate_audio, false)
   end
 end

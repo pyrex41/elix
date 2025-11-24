@@ -32,12 +32,28 @@ defmodule Backend.Services.AiService do
       api_key ->
         Logger.info("[AiService] Using xAI API to generate scenes")
         # For image_pairs, group assets and select best groups
-        case job_type do
-          :image_pairs ->
-            call_xai_api_for_group_selection(assets, campaign_brief, options, api_key)
+        generation_result =
+          case job_type do
+            :image_pairs ->
+              call_xai_api_for_group_selection(assets, campaign_brief, options, api_key)
 
-          _ ->
-            call_xai_api(assets, campaign_brief, job_type, options, api_key)
+            _ ->
+              call_xai_api(assets, campaign_brief, job_type, options, api_key)
+          end
+
+        case generation_result do
+          {:ok, scenes} ->
+            {:ok, scenes}
+
+          {:error, "No scenes generated"} ->
+            Logger.warning(
+              "[AiService] AI returned no scenes (job_type=#{job_type}). Falling back to template scenes."
+            )
+
+            generate_mock_scenes(assets, job_type, options)
+
+          {:error, reason} ->
+            {:error, reason}
         end
     end
   end
@@ -279,6 +295,7 @@ defmodule Backend.Services.AiService do
 
       # Try to extract JSON from the response
       scenes = extract_json_from_content(content)
+      log_scene_parse(content, scenes)
 
       # Validate scenes based on job type
       case validate_scenes(scenes, job_type) do
@@ -355,6 +372,20 @@ defmodule Backend.Services.AiService do
 
   defp validate_scenes(_scenes, _job_type) do
     {:error, "Invalid scenes format"}
+  end
+
+  defp log_scene_parse(content, scenes) do
+    if scenes == [] do
+      preview =
+        content
+        |> to_string()
+        |> String.slice(0, 500)
+        |> String.replace("\n", " ")
+
+      Logger.warning(
+        "[AiService] Parsed AI response but found no scenes. Content preview: #{preview}"
+      )
+    end
   end
 
   defp generate_mock_scenes(assets, :image_pairs, _options) do
