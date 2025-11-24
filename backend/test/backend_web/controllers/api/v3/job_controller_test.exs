@@ -26,7 +26,9 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
           type: :image_pairs,
           status: :pending,
           parameters: %{test: "data"},
-          progress: %{percentage: 0, stage: "created"}
+          progress: %{percentage: 0, stage: "created"},
+          video_name: "Test Video",
+          estimated_cost: 5.0
         })
         |> Repo.insert()
 
@@ -62,7 +64,9 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
         |> Job.changeset(%{
           type: :image_pairs,
           status: :processing,
-          parameters: %{test: "data"}
+          parameters: %{test: "data"},
+          video_name: "Processing Video",
+          estimated_cost: 5.0
         })
         |> Repo.insert()
 
@@ -83,7 +87,9 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
           type: :image_pairs,
           status: :completed,
           parameters: %{test: "data"},
-          result: "final video"
+          result: "final video",
+          video_name: "Completed Video",
+          estimated_cost: 5.0
         })
         |> Repo.insert()
 
@@ -106,7 +112,9 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
           status: :processing,
           parameters: %{"campaign_id" => "test-123", "scenes" => ["scene1", "scene2"]},
           storyboard: %{"scenes" => [%{"id" => 1, "description" => "Opening shot"}]},
-          progress: %{percentage: 45, stage: "rendering"}
+          progress: %{percentage: 45, stage: "rendering"},
+          video_name: "Campaign Video",
+          estimated_cost: 12.34
         })
         |> Repo.insert()
 
@@ -117,6 +125,9 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
       assert response["job_id"] == job.id
       assert response["type"] == "property_photos"
       assert response["status"] == "processing"
+      assert response["video_name"] == "Campaign Video"
+      assert response["estimated_cost"] == 12.34
+      assert response["costs"]["estimated"] == 12.34
       assert response["progress_percentage"] == 45
       assert response["current_stage"] == "rendering"
       assert response["parameters"]["campaign_id"] == "test-123"
@@ -138,7 +149,9 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
         |> Job.changeset(%{
           type: :image_pairs,
           status: :pending,
-          parameters: %{test: "data"}
+          parameters: %{test: "data"},
+          video_name: "Pending Video",
+          estimated_cost: 3.21
         })
         |> Repo.insert()
 
@@ -158,7 +171,9 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
           status: :completed,
           parameters: %{test: "data"},
           progress: %{percentage: 100, stage: "completed"},
-          result: "final video data"
+          result: "final video data",
+          video_name: "Finished Video",
+          estimated_cost: 8.75
         })
         |> Repo.insert()
 
@@ -178,7 +193,9 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
           type: :image_pairs,
           status: :processing,
           parameters: %{},
-          progress: %{"percentage" => 60, "stage" => "stitching"}
+          progress: %{"percentage" => 60, "stage" => "stitching"},
+          video_name: "String Key Video",
+          estimated_cost: 4.2
         })
         |> Repo.insert()
 
@@ -187,6 +204,85 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
       response = json_response(conn, 200)
       assert response["progress_percentage"] == 60
       assert response["current_stage"] == "stitching"
+    end
+  end
+
+  describe "GET /api/v3/generated-videos" do
+    test "lists completed jobs that have video results", %{conn: conn} do
+      job_a =
+        insert_job(%{
+          status: :completed,
+          result: "video-a",
+          parameters: %{"campaign_id" => "camp-1", "client_id" => "client-1"}
+        })
+
+      job_b =
+        insert_job(%{
+          status: :completed,
+          result: "video-b",
+          parameters: %{"campaign_id" => "camp-2", "client_id" => "client-2"}
+        })
+
+      _skipped_job =
+        insert_job(%{
+          status: :processing,
+          result: nil,
+          parameters: %{"campaign_id" => "camp-1"}
+        })
+
+      response =
+        conn
+        |> get(~p"/api/v3/generated-videos")
+        |> json_response(200)
+
+      returned_ids = Enum.map(response["data"], & &1["job_id"])
+      assert Enum.sort(returned_ids) == Enum.sort([job_a.id, job_b.id])
+    end
+
+    test "filters by job_id parameter", %{conn: conn} do
+      job_a =
+        insert_job(%{
+          status: :completed,
+          result: "video-a",
+          parameters: %{"campaign_id" => "camp-1", "client_id" => "client-1"}
+        })
+
+      _job_b =
+        insert_job(%{
+          status: :completed,
+          result: "video-b",
+          parameters: %{"campaign_id" => "camp-2", "client_id" => "client-2"}
+        })
+
+      response =
+        conn
+        |> get(~p"/api/v3/generated-videos", %{job_id: job_a.id})
+        |> json_response(200)
+
+      assert Enum.map(response["data"], & &1["job_id"]) == [job_a.id]
+    end
+
+    test "filters by campaign_id and client_id parameters", %{conn: conn} do
+      job =
+        insert_job(%{
+          status: :completed,
+          result: "video-a",
+          parameters: %{"campaign_id" => "camp-3", "client_id" => "client-9"}
+        })
+
+      _other_job =
+        insert_job(%{
+          status: :completed,
+          result: "video-b",
+          parameters: %{"campaign_id" => "camp-1", "client_id" => "client-1"}
+        })
+
+      response =
+        conn
+        |> get(~p"/api/v3/generated-videos", %{campaign_id: "camp-3", client_id: "client-9"})
+        |> json_response(200)
+
+      assert Enum.map(response["data"], & &1["job_id"]) == [job.id]
     end
   end
 
@@ -201,7 +297,9 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
         |> Job.changeset(%{
           type: :image_pairs,
           status: :pending,
-          parameters: %{test: "integration"}
+          parameters: %{test: "integration"},
+          video_name: "Approval Video",
+          estimated_cost: 6.5
         })
         |> Repo.insert()
 
@@ -218,5 +316,21 @@ defmodule BackendWeb.Api.V3.JobControllerTest do
       updated_job = Repo.get(Job, job.id)
       assert updated_job.status in [:approved, :processing]
     end
+  end
+
+  defp insert_job(attrs) do
+    base_attrs = %{
+      type: :image_pairs,
+      status: :pending,
+      parameters: %{},
+      progress: %{},
+      storyboard: %{},
+      video_name: "Generated Video",
+      estimated_cost: 7.0
+    }
+
+    %Job{}
+    |> Job.changeset(Map.merge(base_attrs, attrs))
+    |> Repo.insert!()
   end
 end

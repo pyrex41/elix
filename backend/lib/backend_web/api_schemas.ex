@@ -20,6 +20,16 @@ defmodule BackendWeb.ApiSchemas do
           type: :string,
           enum: ["pending", "approved", "processing", "completed", "failed"]
         },
+        video_name: %Schema{type: :string},
+        estimated_cost: %Schema{type: :number, format: :float, nullable: true},
+        costs: %Schema{
+          type: :object,
+          nullable: true,
+          properties: %{
+            estimated: %Schema{type: :number, format: :float},
+            currency: %Schema{type: :string}
+          }
+        },
         scene_count: %Schema{type: :integer, minimum: 0},
         message: %Schema{type: :string},
         campaign_id: %Schema{type: :string, format: :uuid},
@@ -70,6 +80,8 @@ defmodule BackendWeb.ApiSchemas do
         id: %Schema{type: :string, format: :uuid},
         name: %Schema{type: :string},
         description: %Schema{type: :string, nullable: true},
+        width: %Schema{type: :integer, nullable: true},
+        height: %Schema{type: :integer, nullable: true},
         homepage: %Schema{type: :string, nullable: true},
         metadata: %Schema{type: :object, additionalProperties: true},
         brand_guidelines: %Schema{type: :string, nullable: true},
@@ -311,14 +323,20 @@ defmodule BackendWeb.ApiSchemas do
       type: :object,
       properties: %{
         id: %Schema{type: :string, format: :uuid},
-        campaign_id: %Schema{type: :string, format: :uuid},
+        campaign_id: %Schema{type: :string, format: :uuid, nullable: true},
+        client_id: %Schema{type: :string, format: :uuid, nullable: true},
         type: %Schema{type: :string, enum: ["image", "video", "audio"]},
+        description: %Schema{type: :string, nullable: true},
+        name: %Schema{type: :string, nullable: true},
+        width: %Schema{type: :integer, nullable: true},
+        height: %Schema{type: :integer, nullable: true},
+        tags: %Schema{type: :array, items: %Schema{type: :string}, nullable: true},
         metadata: %Schema{type: :object, additionalProperties: true},
         source_url: %Schema{type: :string, nullable: true},
         inserted_at: %Schema{type: :string, format: :"date-time"},
         updated_at: %Schema{type: :string, format: :"date-time"}
       },
-      required: [:id, :type, :campaign_id]
+      required: [:id, :type]
     })
   end
 
@@ -328,11 +346,24 @@ defmodule BackendWeb.ApiSchemas do
 
     OpenApiSpex.schema(%{
       title: "AssetRequest",
-      description: "Payload used to create an asset via JSON upload.",
+      description:
+        "Payload used to create an asset via JSON upload. Either campaign_id or client_id must be provided.",
       type: :object,
       properties: %{
-        campaign_id: %Schema{type: :string, format: :uuid},
+        campaign_id: %Schema{
+          type: :string,
+          format: :uuid,
+          description: "Required if client_id is not provided"
+        },
+        client_id: %Schema{
+          type: :string,
+          format: :uuid,
+          description: "Required if campaign_id is not provided"
+        },
         type: %Schema{type: :string, enum: ["image", "video", "audio"]},
+        description: %Schema{type: :string, nullable: true},
+        name: %Schema{type: :string, nullable: true},
+        tags: %Schema{type: :array, items: %Schema{type: :string}, nullable: true},
         metadata: %Schema{type: :object, additionalProperties: true},
         source_url: %Schema{type: :string, description: "URL to download asset from"},
         blob_data: %Schema{
@@ -341,7 +372,7 @@ defmodule BackendWeb.ApiSchemas do
           description: "Base64 encoded binary payload"
         }
       },
-      required: [:campaign_id, :type]
+      required: [:type]
     })
   end
 
@@ -463,7 +494,18 @@ defmodule BackendWeb.ApiSchemas do
       properties:
         Map.merge(Job.schema().properties, %{
           scene_count: %Schema{type: :integer},
-          message: %Schema{type: :string}
+          message: %Schema{type: :string},
+          storyboard_ready: %Schema{type: :boolean},
+          storyboard: %Schema{
+            type: :object,
+            properties: %{
+              scenes: %Schema{
+                type: :array,
+                items: %Schema{type: :object, additionalProperties: true}
+              },
+              total_duration: %Schema{type: :number, nullable: true}
+            }
+          }
         }),
       required: [:job_id, :status, :type, :scene_count]
     })
@@ -503,6 +545,16 @@ defmodule BackendWeb.ApiSchemas do
         job_id: %Schema{type: :integer},
         type: %Schema{type: :string},
         status: %Schema{type: :string},
+        video_name: %Schema{type: :string},
+        estimated_cost: %Schema{type: :number, format: :float, nullable: true},
+        costs: %Schema{
+          type: :object,
+          nullable: true,
+          properties: %{
+            estimated: %Schema{type: :number, format: :float},
+            currency: %Schema{type: :string}
+          }
+        },
         progress_percentage: %Schema{type: :number},
         current_stage: %Schema{type: :string},
         parameters: %Schema{type: :object, additionalProperties: true},

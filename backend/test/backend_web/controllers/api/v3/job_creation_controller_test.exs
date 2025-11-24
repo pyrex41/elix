@@ -77,6 +77,10 @@ defmodule BackendWeb.Api.V3.JobCreationControllerTest do
       assert is_integer(response["job_id"])
       assert response["scene_count"] > 0
       assert response["message"] == "Job created successfully"
+      assert response["video_name"] == "#{campaign.name} 1"
+      assert is_float(response["estimated_cost"])
+      assert response["costs"]["estimated"] == response["estimated_cost"]
+      assert response["costs"]["currency"] == "USD"
 
       # Verify job was created in database
       job = Repo.get(Job, response["job_id"])
@@ -84,6 +88,9 @@ defmodule BackendWeb.Api.V3.JobCreationControllerTest do
       assert job.status == :pending
       assert is_map(job.storyboard)
       assert is_list(job.storyboard["scenes"])
+      assert_in_delta job.parameters["estimated_cost"], response["estimated_cost"], 0.0001
+      assert job.progress["costs"]["estimated"] == response["estimated_cost"]
+      assert job.video_name == "#{campaign.name} 1"
 
       # Verify sub_jobs were created
       sub_jobs = Repo.all(Ecto.assoc(job, :sub_jobs))
@@ -93,6 +100,16 @@ defmodule BackendWeb.Api.V3.JobCreationControllerTest do
       # Verify PubSub event was broadcast
       assert_receive {:job_created, job_id}, 1000
       assert job_id == response["job_id"]
+    end
+
+    test "increments video name per campaign", %{conn: conn, campaign: campaign} do
+      post(conn, ~p"/api/v3/jobs/from-image-pairs", %{"campaign_id" => campaign.id})
+
+      second_conn =
+        post(conn, ~p"/api/v3/jobs/from-image-pairs", %{"campaign_id" => campaign.id})
+
+      response = json_response(second_conn, 201)
+      assert response["video_name"] == "#{campaign.name} 2"
     end
 
     test "creates job with additional parameters", %{conn: conn, campaign: campaign} do
@@ -172,12 +189,16 @@ defmodule BackendWeb.Api.V3.JobCreationControllerTest do
       assert response["scene_count"] > 0
       assert response["property_types"] == ["exterior", "interior", "kitchen"]
       assert response["message"] == "Job created successfully"
+      assert response["video_name"] == "#{campaign.name} 1"
+      assert is_float(response["estimated_cost"])
 
       # Verify job was created in database
       job = Repo.get(Job, response["job_id"])
       assert job.type == :property_photos
       assert job.status == :pending
       assert job.parameters["property_types"] == ["exterior", "interior", "kitchen"]
+      assert job.video_name == "#{campaign.name} 1"
+      assert_in_delta job.parameters["estimated_cost"], response["estimated_cost"], 0.0001
 
       # Verify all scenes have valid scene_types
       scenes = job.storyboard["scenes"]

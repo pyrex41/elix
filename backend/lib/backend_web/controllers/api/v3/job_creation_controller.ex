@@ -7,7 +7,7 @@ defmodule BackendWeb.Api.V3.JobCreationController do
   require Logger
   alias Backend.Repo
   alias Backend.Schemas.{Campaign, Asset, Job, SubJob}
-  alias Backend.Services.AiService
+  alias Backend.Services.{AiService, CostEstimator, VideoMetadata}
   alias BackendWeb.ApiSchemas.{JobCreationRequest, JobCreationResponse}
   alias OpenApiSpex.Operation
   import OpenApiSpex.Operation, only: [request_body: 4, response: 3]
@@ -42,7 +42,7 @@ defmodule BackendWeb.Api.V3.JobCreationController do
          :ok <- validate_assets_exist(assets),
          :ok <- ensure_min_assets(assets, 2),
          {:ok, scenes} <- generate_scenes(assets, campaign, :image_pairs, %{}),
-         {:ok, job} <- create_job(:image_pairs, scenes, params),
+         {:ok, job} <- create_job(:image_pairs, scenes, params, campaign),
          {:ok, _sub_jobs} <- create_sub_jobs(job, scenes),
          :ok <- broadcast_job_created(job.id) do
       Logger.info("[JobCreationController] Job #{job.id} created successfully")
@@ -134,7 +134,7 @@ defmodule BackendWeb.Api.V3.JobCreationController do
          {:ok, scenes} <-
            generate_scenes(assets, campaign, :property_photos, %{property_types: property_types}),
          :ok <- validate_scene_types(scenes, property_types),
-         {:ok, job} <- create_job(:property_photos, scenes, params, property_types),
+         {:ok, job} <- create_job(:property_photos, scenes, params, campaign, property_types),
          {:ok, _sub_jobs} <- create_sub_jobs(job, scenes),
          :ok <- broadcast_job_created(job.id) do
       Logger.info("[JobCreationController] Job #{job.id} created successfully")
@@ -315,7 +315,31 @@ defmodule BackendWeb.Api.V3.JobCreationController do
     end
   end
 
-  defp create_job(job_type, scenes, params, property_types \\ nil) do
+  defp create_job(job_type, scenes, params, campaign, property_types \\ nil) do
+    model = preferred_video_model(params)
+
+    estimated_cost =
+      CostEstimator.estimate_job_cost(
+        scenes,
+        default_model: model,
+        default_duration: params["clip_duration"]
+      )
+
+    sequence = VideoMetadata.next_video_sequence(campaign.id)
+    video_name = VideoMetadata.build_video_name(campaign.name, sequence)
+
+    parameters =
+      params
+      |> build_job_parameters(property_types)
+      |> Map.put_new("campaign_id", campaign.id)
+      |> Map.put_new("campaign_name", campaign.name)
+      |> Map.put_new("video_model", model)
+      |> Map.put_new("cost_currency", "USD")
+      |> Map.put_new("estimated_cost", estimated_cost)
+      |> Map.put_new("video_name", video_name)
+
+    cost_currency = Map.get(parameters, "cost_currency", "USD")
+
     job_params = %{
       type: job_type,
       status: :pending,
@@ -323,11 +347,17 @@ defmodule BackendWeb.Api.V3.JobCreationController do
         scenes: scenes,
         total_duration: calculate_total_duration(scenes)
       },
-      parameters: build_job_parameters(params, property_types),
+      parameters: parameters,
       progress: %{
         percentage: 0,
-        stage: "pending"
-      }
+        stage: "storyboard_ready",
+        costs: %{
+          "estimated" => estimated_cost,
+          "currency" => cost_currency
+        }
+      },
+      video_name: video_name,
+      estimated_cost: estimated_cost
     }
 
     %Job{}
@@ -336,14 +366,34 @@ defmodule BackendWeb.Api.V3.JobCreationController do
   end
 
   defp calculate_total_duration(scenes) do
-    Enum.reduce(scenes, 0, fn scene, acc ->
-      duration = Map.get(scene, "duration", 0)
+    Enum.reduce(scenes, 0.0, fn scene, acc ->
+      duration =
+        case Map.get(scene, "duration") do
+          value when is_number(value) ->
+            value * 1.0
+
+          value when is_binary(value) ->
+            case Float.parse(value) do
+              {float_val, _} -> float_val
+              :error -> 0.0
+            end
+
+          _ ->
+            0.0
+        end
+
       acc + duration
     end)
   end
 
   defp build_job_parameters(params, property_types) do
-    base_params = Map.get(params, "parameters", %{})
+    base_params =
+      params
+      |> Map.get("parameters", %{})
+      |> case do
+        nil -> %{}
+        value -> value
+      end
 
     enriched =
       base_params
@@ -451,14 +501,81 @@ defmodule BackendWeb.Api.V3.JobCreationController do
   end
 
   defp build_job_response(job, scenes, extra_fields) do
+    parameters = job.parameters || %{}
+    cost_summary = job_cost_summary(job, parameters)
+
     base = %{
       "job_id" => job.id,
       "status" => Atom.to_string(job.status),
       "type" => Atom.to_string(job.type),
       "scene_count" => length(scenes),
-      "message" => "Job created successfully"
+      "message" => "Job created successfully",
+      "video_name" => job.video_name,
+      "estimated_cost" => job.estimated_cost,
+      "costs" => cost_summary,
+      "storyboard_ready" => true,
+      "storyboard" => %{
+        "scenes" => scenes,
+        "total_duration" =>
+          get_in(job.storyboard || %{}, ["total_duration"]) ||
+            get_in(job.storyboard || %{}, [:total_duration])
+      }
     }
 
-    Map.merge(base, extra_fields |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Enum.into(%{}))
+    extra_fields
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Enum.into(%{})
+    |> Map.merge(base)
+  end
+
+  defp job_cost_summary(job, parameters) do
+    progress = job.progress || %{}
+
+    summary =
+      Map.get(progress, "costs") ||
+        Map.get(progress, :costs)
+
+    cond do
+      is_map(summary) and summary != %{} ->
+        summary
+
+      true ->
+        estimated = job.estimated_cost || fetch_param(parameters, "estimated_cost")
+        currency = fetch_param(parameters, "cost_currency") || "USD"
+
+        %{
+          "estimated" => estimated,
+          "currency" => currency
+        }
+        |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+        |> Enum.into(%{})
+    end
+  end
+
+  defp fetch_param(map, key) when is_map(map) do
+    map[key] ||
+      case safe_to_existing_atom(key) do
+        nil -> nil
+        atom_key -> Map.get(map, atom_key)
+      end
+  end
+
+  defp fetch_param(_, _), do: nil
+
+  defp safe_to_existing_atom(nil), do: nil
+
+  defp safe_to_existing_atom(key) do
+    try do
+      String.to_existing_atom(key)
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
+  defp preferred_video_model(params) do
+    params["video_model"] ||
+      params["model"] ||
+      get_in(params, ["parameters", "video_model"]) ||
+      Application.get_env(:backend, :video_generation_model, "veo3")
   end
 end

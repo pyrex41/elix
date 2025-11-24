@@ -6,6 +6,7 @@ defmodule BackendWeb.Api.V3.CampaignController do
 
   alias Backend.Repo
   alias Backend.Schemas.{Campaign, Asset, Job}
+  alias Backend.Services.{AiService, CostEstimator, VideoMetadata}
 
   alias BackendWeb.ApiSchemas.{
     CampaignRequest,
@@ -478,8 +479,6 @@ defmodule BackendWeb.Api.V3.CampaignController do
   end
 
   defp generate_scenes_for_campaign(assets, campaign, params) do
-    alias Backend.Services.AiService
-
     # Determine number of scenes from params
     num_scenes = Map.get(params, "num_scenes", 4)
     clip_duration = Map.get(params, "clip_duration", 4)
@@ -500,6 +499,31 @@ defmodule BackendWeb.Api.V3.CampaignController do
   defp create_job_with_scenes(campaign_id, campaign, scenes, params) do
     alias Backend.Schemas.Job
 
+    default_model = Application.get_env(:backend, :video_generation_model, "veo3")
+
+    estimated_cost =
+      CostEstimator.estimate_job_cost(
+        scenes,
+        default_model: default_model
+      )
+
+    sequence = VideoMetadata.next_video_sequence(campaign_id)
+    video_name = VideoMetadata.build_video_name(campaign.name, sequence)
+
+    parameter_payload = %{
+      "campaign_id" => campaign_id,
+      "campaign_name" => campaign.name,
+      "campaign_brief" => campaign.brief || "No brief provided",
+      "asset_count" => length(Repo.all(from(a in Asset, where: a.campaign_id == ^campaign_id))),
+      "style" => Map.get(params, "style", "modern"),
+      "music_genre" => Map.get(params, "music_genre", "upbeat"),
+      "duration_seconds" => Map.get(params, "duration_seconds", 30),
+      "video_model" => default_model,
+      "estimated_cost" => estimated_cost,
+      "cost_currency" => "USD",
+      "video_name" => video_name
+    }
+
     job_params = %{
       type: :property_photos,
       status: :pending,
@@ -507,19 +531,17 @@ defmodule BackendWeb.Api.V3.CampaignController do
         scenes: scenes,
         total_duration: calculate_total_duration(scenes)
       },
-      parameters: %{
-        "campaign_id" => campaign_id,
-        "campaign_name" => campaign.name,
-        "campaign_brief" => campaign.brief || "No brief provided",
-        "asset_count" => length(Repo.all(from(a in Asset, where: a.campaign_id == ^campaign_id))),
-        "style" => Map.get(params, "style", "modern"),
-        "music_genre" => Map.get(params, "music_genre", "upbeat"),
-        "duration_seconds" => Map.get(params, "duration_seconds", 30)
-      },
+      parameters: parameter_payload,
       progress: %{
         percentage: 0,
-        stage: "pending"
-      }
+        stage: "storyboard_ready",
+        costs: %{
+          "estimated" => estimated_cost,
+          "currency" => "USD"
+        }
+      },
+      video_name: video_name,
+      estimated_cost: estimated_cost
     }
 
     %Job{}

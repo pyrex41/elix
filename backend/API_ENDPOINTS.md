@@ -11,13 +11,17 @@ Base URL: `http://localhost:4000/api/v3`
 
 ### Jobs - Basic Operations
 - `GET /jobs/:id` - Get job status and details
+  - Payload now includes `video_name`, `estimated_cost`, and a `costs` summary so the UI can display pricing before approvals
 - `POST /jobs/:id/approve` - Approve a pending job
+- `GET /generated-videos` - List completed videos (query with `job_id`, `campaign_id`, and/or `client_id`)
 
 ### Jobs - Creation
 - `POST /jobs/from-image-pairs` - Create job from before/after image pairs
   - Body: `{image_pairs: [{before_asset_id, after_asset_id, caption}], style, music_genre}`
+  - Response includes `video_name`, the USD `estimated_cost`, and a `costs` summary based on the selected render model
 - `POST /jobs/from-property-photos` - Create job from property photos
   - Body: `{asset_ids: [id], property_details: {address, price, ...}, style, music_genre}`
+  - Response includes `video_name`, the USD `estimated_cost`, and a `costs` summary based on the selected render model
 
 ### Scenes
 - `GET /jobs/:job_id/scenes` - List all scenes for a job

@@ -13,6 +13,8 @@ defmodule Backend.Schemas.Job do
     field :progress, :map
     field :result, :binary
     field :audio_blob, :binary
+    field :video_name, :string
+    field :estimated_cost, :float
 
     has_many :sub_jobs, Backend.Schemas.SubJob
 
@@ -35,10 +37,21 @@ defmodule Backend.Schemas.Job do
   """
   def changeset(job, attrs) do
     job
-    |> cast(attrs, [:type, :status, :parameters, :storyboard, :progress, :result, :audio_blob])
-    |> validate_required([:type])
+    |> cast(attrs, [
+      :type,
+      :status,
+      :parameters,
+      :storyboard,
+      :progress,
+      :result,
+      :audio_blob,
+      :video_name,
+      :estimated_cost
+    ])
+    |> validate_required([:type, :video_name])
     |> validate_inclusion(:type, @job_types)
     |> validate_inclusion(:status, @job_statuses)
+    |> validate_number(:estimated_cost, greater_than_or_equal_to: 0)
   end
 
   @doc """
