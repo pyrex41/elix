@@ -145,7 +145,8 @@ defmodule Backend.Services.AiService do
       ],
       "model" => "grok-4-1-fast-non-reasoning",
       "stream" => false,
-      "temperature" => 0.7
+      "temperature" => 0.7,
+      "response_format" => structured_response_format(job_type)
     }
 
     case Req.post(url, json: body, headers: headers, receive_timeout: 60_000) do
@@ -198,7 +199,8 @@ defmodule Backend.Services.AiService do
       ],
       "model" => "grok-4-1-fast-non-reasoning",
       "stream" => false,
-      "temperature" => 0.7
+      "temperature" => 0.7,
+      "response_format" => grouped_selection_response_format()
     }
 
     case Req.post(url, json: body, headers: headers, receive_timeout: 60_000) do
@@ -269,6 +271,18 @@ defmodule Backend.Services.AiService do
 
   defp build_prompt(assets, campaign_brief, job_type, options) do
     asset_count = length(assets)
+    num_scenes = Map.get(options, :num_scenes, 7)
+    clip_duration = Map.get(options, :clip_duration, 4)
+    target_total_duration = num_scenes * clip_duration
+
+    duration_guidance = """
+
+    IMPORTANT Duration Constraints:
+    - Generate exactly #{num_scenes} scenes
+    - Each scene should be approximately #{clip_duration} seconds long
+    - Target total duration: #{target_total_duration} seconds
+    - Keep individual scene durations close to #{clip_duration} seconds (between #{clip_duration - 1} and #{clip_duration + 2} seconds)
+    """
 
     base_prompt = """
     Campaign Brief: #{campaign_brief}
@@ -277,6 +291,7 @@ defmodule Backend.Services.AiService do
 
     Please analyze the provided assets and generate a storyboard with detailed scene descriptions.
     Each scene should flow naturally and align with the campaign brief.
+    #{duration_guidance}
     """
 
     structured = structured_output_instructions(job_type)
@@ -326,15 +341,70 @@ defmodule Backend.Services.AiService do
 
   defp structured_output_instructions(_), do: structured_output_instructions(:image_pairs)
 
+  defp structured_response_format(job_type) do
+    %{
+      "type" => "json_schema",
+      "json_schema" => %{
+        "name" => "scenes",
+        "schema" => %{
+          "type" => "array",
+          "items" => scene_schema(job_type)
+        }
+      }
+    }
+  end
+
+  defp grouped_selection_response_format do
+    %{
+      "type" => "json_schema",
+      "json_schema" => %{
+        "name" => "group_pairs",
+        "schema" => %{
+          "type" => "array",
+          "items" => %{ "type" => "string" }
+        }
+      }
+    }
+  end
+
+  defp scene_schema(:property_photos) do
+    %{
+      "type" => "object",
+      "properties" =>
+        common_scene_properties()
+        |> Map.merge(%{
+          "scene_type" => %{ "type" => "string" },
+          "highlights" => %{ "type" => "array", "items" => %{ "type" => "string" } }
+        }),
+      "required" => ["title", "description", "duration", "transition", "scene_type"],
+      "additionalProperties" => true
+    }
+  end
+
+  defp scene_schema(_job_type) do
+    %{
+      "type" => "object",
+      "properties" =>
+        common_scene_properties()
+        |> Map.put("scene_type", %{ "type" => "string" }),
+      "required" => ["title", "description", "duration", "transition", "scene_type"],
+      "additionalProperties" => true
+    }
+  end
+
+  defp common_scene_properties do
+    %{
+      "title" => %{ "type" => "string" },
+      "description" => %{ "type" => "string" },
+      "duration" => %{ "type" => "integer" },
+      "transition" => %{ "type" => "string" }
+    }
+  end
+
   defp parse_ai_response(response_body, job_type) do
     try do
       # Extract the content from the AI response
-      content =
-        response_body
-        |> Map.get("choices", [])
-        |> List.first()
-        |> Map.get("message", %{})
-        |> Map.get("content", "")
+      content = extract_message_content(response_body)
 
       # Try to extract JSON from the response
       scenes = extract_json_from_content(content)
@@ -431,22 +501,13 @@ defmodule Backend.Services.AiService do
     end
   end
 
-  defp generate_mock_scenes(assets, :image_pairs, _options) do
-    asset_count = length(assets)
+  defp generate_mock_scenes(assets, :image_pairs, options) do
+    scene_count =
+      Map.get(options, :num_pairs) ||
+        Map.get(options, "num_pairs") ||
+        length(assets)
 
-    scenes =
-      Enum.map(1..min(asset_count, 5), fn i ->
-        %{
-          "title" => "Scene #{i}",
-          "description" =>
-            "A dynamic scene showcasing the brand story with compelling visuals and smooth transitions.",
-          "duration" => 5 + rem(i, 3),
-          "transition" => Enum.at(["fade", "cut", "dissolve"], rem(i, 3)),
-          "text_overlay" => if(rem(i, 2) == 0, do: "Key Message #{i}", else: nil)
-        }
-      end)
-
-    {:ok, scenes}
+    simple_image_pair_selection(assets, scene_count)
   end
 
   defp generate_mock_scenes(assets, :property_photos, options) do
@@ -563,12 +624,7 @@ defmodule Backend.Services.AiService do
   defp parse_group_selection_response(response_body, grouped_assets, options) do
     try do
       # Extract the content from the AI response
-      content =
-        response_body
-        |> Map.get("choices", [])
-        |> List.first()
-        |> Map.get("message", %{})
-        |> Map.get("content", "")
+      content = extract_message_content(response_body)
 
       Logger.info("[AiService] AI response: #{content}")
 
@@ -796,12 +852,7 @@ defmodule Backend.Services.AiService do
   defp parse_group_assignment_response(response_body, templates) do
     scene_keys = Enum.map(templates, &to_string(&1.type))
 
-    content =
-      response_body
-      |> Map.get("choices", [])
-      |> List.first()
-      |> Map.get("message", %{})
-      |> Map.get("content", "")
+    content = extract_message_content(response_body)
 
     case extract_json_array_from_content(content) do
       {:ok, array} ->
@@ -1136,12 +1187,7 @@ defmodule Backend.Services.AiService do
   end
 
   defp parse_single_group_selection_response(response_body) do
-    content =
-      response_body
-      |> Map.get("choices", [])
-      |> List.first()
-      |> Map.get("message", %{})
-      |> Map.get("content", "")
+    content = extract_message_content(response_body)
 
     with {:ok, %{"first_image_id" => first, "last_image_id" => last} = obj}
          when is_binary(first) and
@@ -1202,6 +1248,38 @@ defmodule Backend.Services.AiService do
       }
     end)
   end
+
+  defp extract_message_content(response_body) do
+    response_body
+    |> Map.get("choices", [])
+    |> List.first()
+    |> case do
+      %{"message" => %{"content" => content}} -> normalize_message_content(content)
+      _ -> ""
+    end
+  end
+
+  defp normalize_message_content(content) when is_binary(content), do: content
+
+  defp normalize_message_content(content) when is_list(content) do
+    content
+    |> Enum.map(&content_fragment_to_string/1)
+    |> Enum.join("\n")
+  end
+
+  defp normalize_message_content(%{"text" => text}), do: text
+  defp normalize_message_content(%{"json" => json}) when is_map(json), do: Jason.encode!(json)
+  defp normalize_message_content(%{"json" => json}) when is_binary(json), do: json
+  defp normalize_message_content(%{"content" => inner}) when is_binary(inner), do: inner
+  defp normalize_message_content(other) when is_binary(other), do: other
+  defp normalize_message_content(other), do: Jason.encode!(other)
+
+  defp content_fragment_to_string(%{"text" => text}), do: text
+  defp content_fragment_to_string(%{"json" => json}) when is_map(json), do: Jason.encode!(json)
+  defp content_fragment_to_string(%{"json" => json}) when is_binary(json), do: json
+  defp content_fragment_to_string(%{"content" => inner}) when is_binary(inner), do: inner
+  defp content_fragment_to_string(fragment) when is_binary(fragment), do: fragment
+  defp content_fragment_to_string(fragment), do: Jason.encode!(fragment)
 
   defp extract_json_array_from_content(content) when is_binary(content) do
     case Regex.run(~r/\[[\s\S]*?\]/, content) do
