@@ -51,6 +51,9 @@ defmodule Backend.Services.ReplicateService do
 
       Logger.info("[ReplicateService] Starting render for model #{render_request.model}")
       Logger.debug("[ReplicateService] Payload: #{inspect(payload, pretty: true)}")
+      Logger.debug("[ReplicateService] URL: #{url}")
+      Logger.debug("[ReplicateService] Headers: #{inspect(headers)}")
+      Logger.debug("[ReplicateService] JSON body: #{Jason.encode!(payload)}")
 
       case Req.post(url, json: payload, headers: headers, retry: :transient, max_retries: 3) do
         {:ok, %{status: status, body: body}} when status in 200..299 ->
@@ -283,11 +286,10 @@ defmodule Backend.Services.ReplicateService do
     model_key = normalize_model_key(render_request.model)
 
     with {:ok, config} <- resolve_model_config(model_key),
-         {:ok, version} <- resolve_model_version(config.slug),
          {:ok, input} <- config.builder.(render_request, config) do
       payload =
         %{
-          "version" => version,
+          "version" => config.slug,
           "input" => input
         }
         |> maybe_attach_webhook()
@@ -342,62 +344,6 @@ defmodule Backend.Services.ReplicateService do
       System.get_env("REPLICATE_HILUA_MODEL") ||
         System.get_env("REPLICATE_HAILUO_MODEL") || "minimax/hailuo-02"
 
-  @version_cache_key {__MODULE__, :model_version}
-
-  defp resolve_model_version(slug) do
-    if String.contains?(slug, ":") do
-      {:ok, slug}
-    else
-      cache_key = {@version_cache_key, slug}
-
-      case :persistent_term.get(cache_key, :undefined) do
-        :undefined ->
-          case fetch_model_version(slug) do
-            {:ok, version} ->
-              :persistent_term.put(cache_key, version)
-              {:ok, version}
-
-            {:error, _} = error ->
-              error
-          end
-
-        version ->
-          {:ok, version}
-      end
-    end
-  end
-
-  defp fetch_model_version(slug) do
-    api_key = get_api_key()
-
-    headers = [
-      {"Authorization", "Token #{api_key}"},
-      {"Content-Type", "application/json"}
-    ]
-
-    url = "#{@base_url}/models/#{slug}"
-
-    case Req.get(url, headers: headers, retry: :transient, max_retries: 3) do
-      {:ok, %{status: status, body: %{"latest_version" => %{"id" => id}}}}
-      when status in 200..299 ->
-        {:ok, "#{slug}:#{id}"}
-
-      {:ok, %{status: status, body: body}} ->
-        Logger.error(
-          "[ReplicateService] Version lookup failed for #{slug}. Status: #{status}, Body: #{inspect(body)}"
-        )
-
-        {:error, {:version_lookup_failed, status, body}}
-
-      {:error, reason} ->
-        Logger.error(
-          "[ReplicateService] Version lookup request failed for #{slug}: #{inspect(reason)}"
-        )
-
-        {:error, {:request_failed, reason}}
-    end
-  end
-
   defp build_veo_input(render_request, _config) do
     first = render_request.first_image_url
     last = render_request.last_image_url || first
@@ -413,7 +359,7 @@ defmodule Backend.Services.ReplicateService do
         duration = veo_duration(render_request.duration)
 
         input = %{
-          "prompt" => render_request.prompt,
+          "prompt" => sanitize_prompt(render_request.prompt),
           "image" => first,
           "last_frame" => last,
           "duration" => duration,
@@ -444,7 +390,7 @@ defmodule Backend.Services.ReplicateService do
           "duration" => hailuo_duration(render_request.duration),
           "resolution" => "1080p",
           "prompt_optimizer" => true,
-          "prompt" => render_request.prompt
+          "prompt" => sanitize_prompt(render_request.prompt)
         }
 
         {:ok, input}
@@ -493,4 +439,15 @@ defmodule Backend.Services.ReplicateService do
         payload
     end
   end
+
+  defp sanitize_prompt(nil), do: ""
+
+  defp sanitize_prompt(prompt) when is_binary(prompt) do
+    prompt
+    |> String.replace(~r/[\r\n]+/, " ")
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+  end
+
+  defp sanitize_prompt(prompt), do: prompt |> to_string() |> sanitize_prompt()
 end

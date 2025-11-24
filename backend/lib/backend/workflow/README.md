@@ -203,11 +203,17 @@ CREATE TABLE jobs (
 
 ### Task.async_stream (Future)
 
-For Task 8, parallel rendering will use `Task.async_stream`:
+For Task 8, rendering uses `Task.async_stream` with a configurable concurrency cap (`REPLICATE_MAX_CONCURRENCY`, default `4`) and a per-scene stagger (`REPLICATE_START_DELAY_MS`, default `1000`) so we overlap jobs without sending four identical requests at the exact same millisecond:
 
 ```elixir
+max_concurrency = Application.get_env(:backend, :replicate_max_concurrency, 4)
+start_delay_ms = Application.get_env(:backend, :replicate_start_delay_ms, 1_000)
+
 sub_jobs
-|> Task.async_stream(&process_sub_job/1, max_concurrency: 10)
+|> Task.async_stream(
+  &process_sub_job(&1, %{start_delay_ms: start_delay_ms}),
+  max_concurrency: max(1, max_concurrency)
+)
 |> Enum.to_list()
 ```
 

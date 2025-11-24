@@ -17,6 +17,30 @@ audio_error_strategy =
     _ -> :continue_with_silence
   end
 
+replicate_max_concurrency =
+  case System.get_env("REPLICATE_MAX_CONCURRENCY") do
+    nil ->
+      4
+
+    value ->
+      case Integer.parse(value) do
+        {parsed, _} when parsed > 0 -> parsed
+        _ -> 4
+      end
+  end
+
+replicate_start_delay_ms =
+  case System.get_env("REPLICATE_START_DELAY_MS") do
+    nil ->
+      1_000
+
+    value ->
+      case Integer.parse(value) do
+        {parsed, _} when parsed >= 0 -> parsed
+        _ -> 1_000
+      end
+  end
+
 config :backend,
   replicate_api_key: System.get_env("REPLICATE_API_KEY"),
   xai_api_key: System.get_env("XAI_API_KEY"),
@@ -28,7 +52,9 @@ config :backend,
   audio_merge_with_video: System.get_env("AUDIO_MERGE_WITH_VIDEO", "true") != "false",
   audio_fail_on_error: System.get_env("AUDIO_FAIL_ON_ERROR", "false") == "true",
   audio_sync_mode: audio_sync_mode,
-  audio_error_strategy: audio_error_strategy
+  audio_error_strategy: audio_error_strategy,
+  replicate_max_concurrency: replicate_max_concurrency,
+  replicate_start_delay_ms: replicate_start_delay_ms
 
 # Configure your database
 config :backend, Backend.Repo,

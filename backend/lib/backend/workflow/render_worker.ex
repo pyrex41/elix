@@ -15,7 +15,8 @@ defmodule Backend.Workflow.RenderWorker do
   alias Backend.Services.ReplicateService
   import Ecto.Query
 
-  @max_concurrency 10
+  @default_max_concurrency 4
+  @default_start_delay_ms 1_000
 
   @doc """
   Processes all sub_jobs for a given job in parallel.
@@ -50,8 +51,8 @@ defmodule Backend.Workflow.RenderWorker do
     else
       Logger.info("[RenderWorker] Found #{length(sub_jobs)} sub_jobs to process")
 
-      # Process sub_jobs in parallel
-      max_concurrency = Map.get(options, :max_concurrency, @max_concurrency)
+      # Process sub_jobs in parallel with staggered Replicate starts to avoid throttling
+      max_concurrency = Map.get(options, :max_concurrency, configured_max_concurrency())
       results = process_sub_jobs_parallel(sub_jobs, max_concurrency, options)
 
       # Aggregate results
@@ -490,6 +491,8 @@ defmodule Backend.Workflow.RenderWorker do
   end
 
   defp start_rendering(render_request, options) do
+    maybe_throttle_prediction_start(render_request, options)
+
     Logger.info(
       "[RenderWorker] Starting render for scene #{render_request.metadata[:scene_index]} using model #{render_request.model}"
     )
@@ -636,5 +639,46 @@ defmodule Backend.Workflow.RenderWorker do
 
   defp prediction_id(prediction) when is_struct(prediction) do
     Map.get(prediction, :id)
+  end
+
+  defp configured_max_concurrency do
+    Application.get_env(:backend, :replicate_max_concurrency, @default_max_concurrency)
+    |> max(1)
+  end
+
+  defp configured_start_delay_ms do
+    Application.get_env(:backend, :replicate_start_delay_ms, @default_start_delay_ms)
+    |> max(0)
+  end
+
+  defp maybe_throttle_prediction_start(render_request, options) do
+    base_delay =
+      Map.get(options, :start_delay_ms, configured_start_delay_ms())
+      |> max(0)
+
+    scene_index =
+      render_request
+      |> Map.get(:metadata)
+      |> case do
+        map when is_map(map) -> Map.get(map, :scene_index) || Map.get(map, "scene_index")
+        _ -> nil
+      end
+
+    cond do
+      base_delay <= 0 ->
+        :ok
+
+      is_integer(scene_index) and scene_index > 0 ->
+        total_delay = scene_index * base_delay
+
+        Logger.debug(
+          "[RenderWorker] Delaying render start for scene #{scene_index} by #{total_delay}ms to stagger Replicate requests"
+        )
+
+        Process.sleep(total_delay)
+
+      true ->
+        :ok
+    end
   end
 end

@@ -20,6 +20,8 @@ Required environment variables:
 - `PUBLIC_BASE_URL` - Publicly reachable base URL (ngrok in development, Fly URL in prod) so Replicate can fetch first/last-frame assets.
 - `VIDEO_GENERATION_MODEL` - Default Replicate model (`veo3` or `hilua-2.5`) used for rendering; can be overridden per request.
 - `REPLICATE_WEBHOOK_URL` *(optional)* - If you need Replicate to POST status callbacks, point this at a real HTTPS endpoint; leave blank to disable webhooks (recommended until a handler exists).
+- `REPLICATE_MAX_CONCURRENCY` *(optional, default: 4)* - Upper bound for simultaneous Replicate predictions; combine with the start delay setting below to stay under Replicate’s throttling thresholds.
+- `REPLICATE_START_DELAY_MS` *(optional, default: 1000)* - How many milliseconds to stagger each Replicate prediction start (multiplied by the scene index) to avoid bursts that trigger E6716.
 - `AUTO_GENERATE_AUDIO` *(optional, default: false)* - Set to `true` to automatically trigger MusicGen background audio once stitching finishes.
 - `AUDIO_MERGE_WITH_VIDEO` *(optional, default: true)* - Controls whether the generated track is muxed into the stitched MP4 when auto-audio is enabled.
 - `AUDIO_SYNC_MODE` *(optional, default: trim)* - How the merged track is aligned with the video (`trim`, `stretch`, or `compress`).
@@ -58,6 +60,7 @@ The pipeline mirrors the legacy Python service so the frontend can talk to the s
    - Assets referenced in the storyboard are served via `/api/v3/assets/:asset_id/data`. Replicate uses those URLs (first/last frame) to render transitions; no auth header is required on that endpoint.
    - Scene prompts are fed to Replicate/XAI via the `scene_prompt/1` helper, which returns `scene["prompt"]` (or falls back to `description`, `title`, or a generic string). Whatever is in the storyboard's prompt field is what gets rendered (backend/lib/backend/workflow/render_worker.ex:439-447).
    - Webhook callbacks (if `REPLICATE_WEBHOOK_URL` is set) land at `POST /api/webhooks/replicate` and update sub-job state; otherwise the worker polls Replicate until completion.
+   - Replicate throttles concurrent predictions from a single key. We keep `REPLICATE_MAX_CONCURRENCY` modest (default `4`) and stagger each start by `scene_index * REPLICATE_START_DELAY_MS` (default `1s`) so jobs still overlap while avoiding E6716 bursts. Increase/decrease the env vars if your account has different limits.
 
 4. **Progress + Status Updates**
    - Poll `GET /api/v3/jobs/:id` for high-level status. The payload includes `status`, `progress_percentage`, `current_stage`, the original `parameters`, and the storyboard.

@@ -5,6 +5,11 @@ Last Updated: 2025-11-24 (Afternoon – Prompt Tooling & Metadata Refresh)
 
 ### Latest Accomplishments (Session: 2025-11-24 Afternoon)
 
+#### ⚠️ Replicate Rate Limit Discovery (Evening follow-up)
+- Shelling the exact curl payload from the terminal succeeds, but launching the same scene through the app with four concurrent Req requests consistently returns Replicate error `E6716`.
+- Root cause: Replicate throttles concurrent predictions per API key. The CLI call is sequential, whereas the worker fired four at once.
+- Mitigation: `RenderWorker` now staggers each prediction start by `scene_index * REPLICATE_START_DELAY_MS` (default `1s`) while keeping `REPLICATE_MAX_CONCURRENCY` modest (default `4`). This preserves overlap without firing a burst of identical requests. README + workflow docs describe both knobs.
+
 #### ✅ Prompt Testing Interface Walkthrough
 - Documented the `/api/v3/testing/ui` workflow so prompt, image-selection, music, overlay, and voiceover teams can self-serve tests locally (`http://localhost:4000/api/v3/testing/ui`) or on Fly.
 - Confirmed API-key storage, pipeline toggles, and each section’s expected JSON output, closing the last gaps raised in PR #1 before archiving it.
