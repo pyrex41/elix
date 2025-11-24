@@ -13,7 +13,7 @@ Base URL: `http://localhost:4000/api/v3`
 - `GET /jobs/:id` - Get job status and details
   - Payload now includes `video_name`, `estimated_cost`, and a `costs` summary so the UI can display pricing before approvals
 - `POST /jobs/:id/approve` - Approve a pending job
-- `GET /generated-videos` - List completed videos (query with `job_id`, `campaign_id`, and/or `client_id`)
+- `GET /generated-videos` - List completed videos (query with `job_id`, `campaign_id`, and/or `client_id`) and returns each job's `storyboard` so the UI can grab thumbnail images without another API call
 
 ### Jobs - Creation
 - `POST /jobs/from-image-pairs` - Create job from before/after image pairs
@@ -40,6 +40,13 @@ Base URL: `http://localhost:4000/api/v3`
 - `POST /audio/generate-scenes` - Generate audio for scenes
 - `GET /audio/status/:job_id` - Get audio generation status
 - `GET /audio/:job_id/download` - Download generated audio
+- `GET /audio/segments/:token` - Serve ephemeral scene audio clips for MusicGen continuation
+  - No authentication required (tokens are opaque and short-lived)
+  - Tokens expire after 30 minutes by default (configurable via `AUDIO_SEGMENT_TTL`)
+  - Used automatically by MusicGen when Replicate doesn't provide CDN URLs
+  - Returns HTTP 304 Not Modified with ETag support for efficient caching
+  - Returns HTTP 404 if token not found or expired
+- Auto-audio: set `AUTO_GENERATE_AUDIO=true` to trigger background music immediately after video stitching completes (progress stages: `audio_generation_pending → audio_generation → audio_completed`)
 
 ## 🔶 Need to Implement
 

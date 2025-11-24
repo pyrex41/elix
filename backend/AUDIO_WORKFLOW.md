@@ -23,6 +23,16 @@ The Audio Generation Workflow provides automated background music generation for
    - Manages asynchronous processing
    - Returns status and download capabilities
 
+## Automatic Job Integration
+
+- Set `AUTO_GENERATE_AUDIO=true` to have the coordinator queue `AudioWorker` automatically after video stitching succeeds.
+- Default parameters for the auto-run worker are driven by the following env vars:
+  - `AUDIO_MERGE_WITH_VIDEO` – controls whether the generated track is muxed into the stitched MP4.
+  - `AUDIO_SYNC_MODE` – chooses how the merged track aligns with the final video (`trim`, `stretch`, or `compress`).
+  - `AUDIO_ERROR_STRATEGY` – determines whether per-scene failures halt generation or fall back to silence.
+  - `AUDIO_FAIL_ON_ERROR` – when true, any MusicGen failure marks the job as failed so clients can retry.
+- Progress stages now include `audio_generation_pending`, `audio_generation`, and `audio_completed` so the UI can reflect the extra work.
+
 ## API Endpoints
 
 ### 1. Generate Audio for Scenes
@@ -108,6 +118,7 @@ Downloads the generated audio file (MP3 format).
    - Scenes are processed sequentially using `Enum.reduce_while`
    - Each iteration generates audio for one scene
    - Continuation tokens are passed between scenes for seamless transitions
+   - The previous scene's output URL is fed back to MusicGen via the `input_audio` parameter so Replicate can produce a true continuation instead of an isolated clip
 
 2. **Audio Chaining:**
    ```elixir
@@ -119,8 +130,19 @@ Downloads the generated audio file (MP3 format).
      |> pass_continuation_to_next()
    end)
    ```
+   - When Replicate returns a cumulative track we keep the final blob directly.
+   - If the API cannot provide a continuation URL (e.g. local silence fallback) we degrade gracefully by merging the collected MP3 segments with FFmpeg fades.
 
-3. **Segment Merging:**
+3. **Audio Segment Store (ETS-backed caching):**
+   - When Replicate doesn't expose a CDN URL for a previous scene, we automatically persist the MP3 blob in an in-memory ETS store (`Backend.Services.AudioSegmentStore`)
+   - The store generates opaque tokens and serves segments via `GET /api/v3/audio/segments/:token` (no authentication required)
+   - Tokens expire after 30 minutes by default
+   - MusicGen continuation calls use these ephemeral URLs (`continuation_audio_url`) so chaining works even without external CDN storage
+   - We explicitly send `continuation_start`/`continuation_end` that cover only the final second of the previous clip so Replicate always receives a valid window (`duration > continuation_start`) without asking for exponentially longer scenes
+   - Implementation: backend/lib/backend/services/audio_segment_store.ex, backend/lib/backend_web/controllers/api/v3/audio_segment_controller.ex
+   - Automatically started with the supervision tree (backend/lib/backend/application.ex:17)
+
+4. **Segment Merging:**
    - All audio segments are merged using FFmpeg
    - Fade effects are applied between segments:
      - Fade out at the end of each segment (except last)
@@ -142,6 +164,7 @@ When `merge_with_video: true` is set:
      - **Trim:** Audio is trimmed to match video length
      - **Stretch:** Audio is time-stretched (may affect quality)
      - **Compress:** Audio tempo is adjusted (limited to 0.5-2.0x)
+   - If a client request omits `merge_with_video`, the worker falls back to the global `AUDIO_MERGE_WITH_VIDEO` config so full pipeline jobs automatically mux audio unless explicitly disabled.
 
 2. **FFmpeg Merging:**
    ```bash
@@ -281,6 +304,26 @@ curl -X POST http://localhost:4000/api/v3/audio/generate-scenes \
 - **Version:** stereo-large
 - **Output Format:** MP3
 - **Normalization:** Loudness normalization enabled
+
+### Continuation Strategy
+
+MusicGen supports seamless audio continuation across scenes:
+
+1. **Preferred: CDN URL continuation**
+   - When Replicate returns an `audio_url` (CDN-hosted MP3), we pass it directly via `continuation_audio_url` to the next scene
+   - This is the fastest and most reliable method
+
+2. **Fallback: ETS Store continuation**
+   - If no CDN URL is available (e.g., Replicate returns only blob data), `MusicgenService` automatically persists the MP3 in `AudioSegmentStore`
+   - A short-lived token is generated and served via `GET /api/v3/audio/segments/:token`
+   - MusicGen receives this public URL as `continuation_audio_url` and continues seamlessly
+   - Logged as: `"[MusicgenService] Stored continuation segment at <PUBLIC_BASE_URL>/api/v3/audio/segments/..."`
+
+3. **Last resort: No continuation**
+   - If both CDN URL and ETS persist fail, we disable continuation for that scene and log a warning
+   - The system continues processing remaining scenes (unless `error_strategy: "halt"` is set)
+
+Implementation reference: backend/lib/backend/services/musicgen_service.ex:145-159
 
 ### Prompt Engineering
 

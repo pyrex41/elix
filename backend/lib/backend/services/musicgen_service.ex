@@ -3,7 +3,8 @@ defmodule Backend.Services.MusicgenService do
   Service module for interacting with Replicate's MusicGen API.
   Handles audio generation for video scenes with continuation support.
   """
-require Logger
+  require Logger
+  alias Backend.Services.AudioSegmentStore
 
   @replicate_api_url "https://api.replicate.com/v1/predictions"
   @musicgen_model "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb"
@@ -30,6 +31,7 @@ require Logger
 
       api_key ->
         Logger.info("[MusicgenService] Generating audio for scene: #{scene["title"]}")
+        log_generation_plan(scene, options)
         call_musicgen_api(scene, options, api_key)
     end
   end
@@ -48,7 +50,9 @@ require Logger
   """
   def generate_with_continuation(scene, previous_audio, options \\ %{}) do
     continuation_options =
-      Map.put(options, :continuation_start, previous_audio.continuation_token)
+      options
+      |> Map.put_new(:continuation_audio_url, previous_audio.audio_url)
+      |> Map.put_new(:continuation_audio_blob, previous_audio.audio_blob)
 
     generate_scene_audio(scene, continuation_options)
   end
@@ -78,47 +82,115 @@ require Logger
       "[MusicgenService] Generating music for #{length(scenes)} scenes with continuation"
     )
 
-    # Generate audio for each scene with continuation
-    result =
-      scenes
-      |> Enum.reduce_while({:ok, []}, fn scene, {:ok, acc} ->
-        # Determine duration for this scene
-        duration = scene["duration"] || default_duration
+    # Generate audio sequentially, feeding the last output back into MusicGen
+    generation_state =
+      Enum.reduce_while(scenes, {:ok, %{segments: [], previous: nil, total_duration: 0}}, fn
+        scene, {:ok, state} ->
+          duration = resolve_duration(scene, %{duration: default_duration})
 
-        # Get previous audio for continuation
-        previous_audio = List.last(acc)
+          options_with_continuation =
+            build_continuation_options(
+              %{duration: duration},
+              state.previous,
+              state.total_duration
+            )
 
-        # Generate audio (with or without continuation)
-        scene_result =
-          case previous_audio do
-            nil ->
-              # First scene: no continuation
-              generate_scene_audio(scene, %{duration: duration})
+          case generate_scene_audio(scene, options_with_continuation) do
+            {:ok, audio_data} ->
+              updated_state = %{
+                segments: [audio_data | state.segments],
+                previous: audio_data,
+                total_duration: state.total_duration + duration
+              }
 
-            prev ->
-              # Subsequent scenes: use continuation
-              generate_with_continuation(scene, prev, %{duration: duration})
+              {:cont, {:ok, updated_state}}
+
+            {:error, reason} ->
+              {:halt, {:error, "Failed to generate audio for scene: #{reason}"}}
           end
 
-        case scene_result do
-          {:ok, audio_data} ->
-            {:cont, {:ok, acc ++ [audio_data]}}
-
-          {:error, reason} ->
-            {:halt, {:error, "Failed to generate audio for scene: #{reason}"}}
-        end
+        _scene, {:error, reason} ->
+          {:halt, {:error, reason}}
       end)
 
-    case result do
-      {:ok, audio_segments} ->
-        # Extract audio blobs from segments
-        blobs = Enum.map(audio_segments, & &1.audio_blob)
+    case generation_state do
+      {:ok, %{previous: %{audio_url: audio_url, audio_blob: audio_blob}}}
+      when not is_nil(audio_url) ->
+        # Replicate continuation returns a cumulative clip – reuse the final blob directly
+        {:ok, audio_blob}
 
-        # Merge all segments with fade effects
+      {:ok, %{segments: []}} ->
+        {:error, "No scenes provided for audio generation"}
+
+      {:ok, %{segments: segments}} ->
+        blobs =
+          segments
+          |> Enum.reverse()
+          |> Enum.map(& &1.audio_blob)
+
         merge_audio_segments(blobs, fade_duration)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp build_continuation_options(base_options, nil, _total_duration), do: base_options
+
+  defp build_continuation_options(base_options, previous_audio, total_duration) do
+    base_options
+    |> attach_continuation_audio(previous_audio)
+    |> attach_continuation_window(total_duration)
+  end
+
+  defp attach_continuation_audio(options, nil), do: options
+
+  defp attach_continuation_audio(options, previous_audio) do
+    cond do
+      previous_audio[:audio_url] ->
+        Map.put(options, :continuation_audio_url, previous_audio.audio_url)
+
+      previous_audio[:audio_blob] && byte_size(previous_audio.audio_blob) > 0 ->
+        case persist_segment(previous_audio.audio_blob) do
+          {:ok, segment_url} ->
+            Logger.debug("[MusicgenService] Stored continuation segment at #{segment_url}")
+            Map.put(options, :continuation_audio_url, segment_url)
+
+          {:error, reason} ->
+            Logger.warning(
+              "[MusicgenService] Failed to persist continuation segment: #{inspect(reason)}"
+            )
+
+            options
+        end
+
+      true ->
+        options
+    end
+  end
+
+  defp attach_continuation_window(options, total_duration) do
+    continuation_url = options[:continuation_audio_url]
+
+    cond do
+      is_nil(continuation_url) ->
+        options
+
+      total_duration <= 0 ->
+        options
+
+      true ->
+        window = min(continuation_window_seconds(), total_duration)
+        start_time = max(total_duration - window, 0.0)
+        end_time = max(total_duration, start_time + 0.5)
+
+        start_value = start_time |> Float.floor() |> trunc()
+        end_value = end_time |> Float.ceil() |> trunc()
+        end_value = max(start_value + 1, end_value)
+
+        options
+        |> Map.put(:continuation_start, start_value)
+        |> Map.put(:continuation_end, end_value)
     end
   end
 
@@ -219,38 +291,43 @@ require Logger
   defp call_musicgen_api(scene, options, api_key) do
     # Build prompt from scene description
     prompt = build_audio_prompt(scene, options)
-    duration = Map.get(options, :duration, scene["duration"] || 5)
+    duration = resolve_duration(scene, options)
 
-    input_params = %{
-      "prompt" => prompt,
-      "duration" => duration,
-      "model_version" => "stereo-large",
-      "output_format" => "mp3",
-      "normalization_strategy" => "loudness"
-    }
-
-    # Add continuation if provided
     input_params =
-      case Map.get(options, :continuation_start) do
-        nil -> input_params
-        continuation -> Map.put(input_params, "continuation_start", continuation)
-      end
+      %{
+        "prompt" => prompt,
+        "duration" => duration,
+        "model_version" => "stereo-large",
+        "output_format" => "mp3",
+        "normalization_strategy" => "loudness"
+      }
+      |> maybe_put_continuation_params(options)
 
     headers = [
       {"Authorization", "Bearer #{api_key}"},
       {"Content-Type", "application/json"}
     ]
 
+    title = scene_title(scene)
+
     body = %{
       "version" => @musicgen_model,
       "input" => input_params
     }
 
+    log_api_payload(scene, input_params, options)
+
     case Req.post(@replicate_api_url, json: body, headers: headers) do
       {:ok, %{status: 201, body: response}} ->
         # Poll for completion
         prediction_url = response["urls"]["get"]
-        poll_prediction(prediction_url, api_key)
+        prediction_id = response["id"]
+        Logger.debug("[MusicgenService] Prediction #{prediction_id} queued for #{title}")
+
+        poll_prediction(prediction_url, api_key, 60, %{
+          scene: title,
+          prediction_id: prediction_id
+        })
 
       {:ok, %{status: status, body: body}} ->
         Logger.error(
@@ -265,38 +342,61 @@ require Logger
     end
   end
 
-  defp poll_prediction(url, api_key, max_attempts \\ 60) do
+  defp poll_prediction(url, api_key, max_attempts, context) do
     headers = [{"Authorization", "Bearer #{api_key}"}]
-    poll_with_backoff(url, headers, max_attempts, 0)
+    poll_with_backoff(url, headers, max_attempts, 0, context)
   end
 
-  defp poll_with_backoff(url, headers, max_attempts, attempt) when attempt < max_attempts do
+  defp poll_with_backoff(url, headers, max_attempts, attempt, context)
+       when attempt < max_attempts do
     case Req.get(url, headers: headers) do
       {:ok, %{status: 200, body: response}} ->
         case response["status"] do
           "succeeded" ->
+            Logger.debug(
+              "[MusicgenService] Prediction #{context_label(context)} succeeded after #{attempt + 1} polls"
+            )
+
             extract_audio_result(response)
 
           "failed" ->
-            Logger.error("[MusicgenService] Prediction failed: #{inspect(response["error"])}")
+            Logger.error(
+              "[MusicgenService] Prediction #{context_label(context)} failed: #{inspect(response["error"])}"
+            )
+
             {:error, "Audio generation failed"}
 
           "canceled" ->
+            Logger.error("[MusicgenService] Prediction #{context_label(context)} was canceled")
             {:error, "Audio generation was canceled"}
 
           _ ->
             # Still processing, wait and retry
+            if rem(attempt, 5) == 0 do
+              Logger.debug(
+                "[MusicgenService] Prediction #{context_label(context)} status=#{response["status"]}"
+              )
+            end
+
             Process.sleep(calculate_backoff(attempt))
-            poll_with_backoff(url, headers, max_attempts, attempt + 1)
+            poll_with_backoff(url, headers, max_attempts, attempt + 1, context)
         end
 
       {:error, exception} ->
-        Logger.error("[MusicgenService] Poll request failed: #{inspect(exception)}")
+        Logger.error(
+          "[MusicgenService] Poll request failed for #{context_label(context)}: #{inspect(exception)}"
+        )
+
         {:error, Exception.message(exception)}
     end
   end
 
-  defp poll_with_backoff(_url, _headers, max_attempts, attempt) when attempt >= max_attempts do
+  defp poll_with_backoff(_url, _headers, max_attempts, attempt, context)
+       when attempt >= max_attempts do
+    Logger.error(
+      "[MusicgenService] Prediction #{context_label(context)} timed out after #{max_attempts} polls"
+    )
+
     {:error, "Audio generation timed out"}
   end
 
@@ -329,7 +429,8 @@ require Logger
         {:ok,
          %{
            audio_blob: audio_blob,
-           continuation_token: continuation_token
+           continuation_token: continuation_token,
+           audio_url: audio_url
          }}
 
       {:error, exception} ->
@@ -419,7 +520,7 @@ require Logger
       case System.cmd("ffmpeg", args, stderr_to_stdout: true) do
         {_output, 0} ->
           audio_blob = File.read!(temp_output_path)
-          {:ok, %{audio_blob: audio_blob, continuation_token: nil}}
+          {:ok, %{audio_blob: audio_blob, continuation_token: nil, audio_url: nil}}
 
         {output, exit_code} ->
           Logger.error(
@@ -638,5 +739,149 @@ require Logger
     Enum.each(paths, fn path ->
       File.rm(path)
     end)
+  end
+
+  defp log_generation_plan(scene, options) do
+    title = scene_title(scene)
+    duration = resolve_duration(scene, options)
+    source = continuation_source_label(options)
+
+    Logger.debug(
+      "[MusicgenService] Preparing #{title} (#{duration}s) with continuation=#{source}"
+    )
+  end
+
+  defp log_api_payload(scene, params, options) do
+    title = scene_title(scene)
+
+    if Map.get(params, "continuation") do
+      Logger.debug(
+        "[MusicgenService] Sending continuation clip for #{title} source=#{continuation_source_label(options)}"
+      )
+    else
+      Logger.debug("[MusicgenService] Sending fresh clip for #{title}")
+    end
+  end
+
+  defp continuation_source_label(options) do
+    if option_present?(options, :continuation_audio_url) do
+      "remote_url"
+    else
+      "none"
+    end
+  end
+
+  defp option_present?(options, key) when is_map(options) do
+    Map.has_key?(options, key) || Map.has_key?(options, Atom.to_string(key))
+  end
+
+  defp option_present?(_options, _key), do: false
+
+  defp scene_title(scene) do
+    scene["title"] || scene[:title] || "scene"
+  end
+
+  defp context_label(%{scene: scene, prediction_id: id})
+       when not is_nil(scene) and not is_nil(id),
+       do: "#{id} (#{scene})"
+
+  defp context_label(%{prediction_id: id}) when not is_nil(id), do: to_string(id)
+  defp context_label(%{scene: scene}) when not is_nil(scene), do: scene
+  defp context_label(_), do: "unknown"
+
+  defp resolve_duration(scene, options) do
+    duration_value =
+      cond do
+        is_map(options) && Map.has_key?(options, :duration) ->
+          Map.get(options, :duration)
+
+        is_map(options) && Map.has_key?(options, "duration") ->
+          Map.get(options, "duration")
+
+        Map.get(scene, "duration") ->
+          scene["duration"]
+
+        Map.get(scene, :duration) ->
+          scene[:duration]
+
+        true ->
+          5
+      end
+
+    normalize_duration(duration_value)
+  end
+
+  defp maybe_put_continuation_params(params, options) do
+    if options[:continuation_audio_url] do
+      params
+      |> Map.put("continuation", true)
+      |> Map.put("input_audio", options[:continuation_audio_url])
+      |> maybe_put_numeric("continuation_start", options[:continuation_start])
+      |> maybe_put_numeric("continuation_end", options[:continuation_end])
+    else
+      params
+    end
+  end
+
+  defp maybe_put_numeric(params, _key, nil), do: params
+
+  defp maybe_put_numeric(params, key, value) do
+    Map.put(params, key, value)
+  end
+
+  defp normalize_duration(value) do
+    value
+    |> to_float()
+    |> max(1.0)
+    |> Float.floor()
+    |> trunc()
+  end
+
+  defp to_float(value) when is_integer(value), do: value / 1
+  defp to_float(value) when is_float(value), do: value
+
+  defp to_float(value) when is_binary(value) do
+    case Float.parse(value) do
+      {parsed, _} -> parsed
+      :error -> 0.0
+    end
+  end
+
+  defp to_float(_), do: 0.0
+
+  defp persist_segment(blob) do
+    with {:ok, token} <- AudioSegmentStore.store(blob),
+         {:ok, url} <- build_segment_url(token) do
+      {:ok, url}
+    end
+  end
+
+  defp continuation_window_seconds do
+    Application.get_env(:backend, :audio_continuation_window_seconds, 1.0)
+    |> max(0.5)
+  end
+
+  defp build_segment_url(token) do
+    case base_public_url() do
+      {:ok, base} ->
+        {:ok, String.trim_trailing(base, "/") <> "/api/v3/audio/segments/#{token}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp base_public_url do
+    case Application.get_env(:backend, :public_base_url) do
+      url when is_binary(url) and url != "" ->
+        {:ok, url}
+
+      _ ->
+        if function_exported?(BackendWeb.Endpoint, :url, 0) do
+          {:ok, BackendWeb.Endpoint.url()}
+        else
+          {:error, :no_base_url}
+        end
+    end
   end
 end

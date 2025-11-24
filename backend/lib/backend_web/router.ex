@@ -60,6 +60,7 @@ defmodule BackendWeb.Router do
 
       # Job management endpoints
       post "/jobs/:id/approve", JobController, :approve
+      get "/generated-videos", JobController, :generated_videos
       get "/jobs/:id", JobController, :show
 
       # Scene management endpoints
@@ -131,6 +132,7 @@ defmodule BackendWeb.Router do
     scope "/v3", Api.V3 do
       get "/assets/:id/data", AssetController, :data
       get "/assets/:id/thumbnail", AssetController, :thumbnail
+      get "/audio/segments/:token", AudioSegmentController, :show
     end
 
     post "/webhooks/replicate", Api.V3.WebhookController, :replicate
