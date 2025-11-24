@@ -52,11 +52,25 @@ defmodule Backend.Workflow.StitchWorker do
          {:ok, concat_file} <- create_concat_file(temp_dir, video_files),
          {:ok, output_file} <- stitch_videos(concat_file, temp_dir),
          {:ok, result_blob} <- read_result(output_file),
-         {:ok, _job} <- save_result(job, result_blob),
+         {:ok, job} <- save_result(job, result_blob),
          :ok <- cleanup(temp_dir) do
       Logger.info("[StitchWorker] Successfully completed stitching for job #{job_id}")
 
-      Coordinator.complete_job(job_id, result_blob)
+      if Coordinator.auto_audio_enabled?() do
+        case Coordinator.merge_audio_if_ready(job_id) do
+          true ->
+            Logger.info("[StitchWorker] Audio merged immediately after stitching for job #{job_id}")
+            Coordinator.complete_job(job_id, job.result)
+
+          _ ->
+            Logger.info(
+              "[StitchWorker] Waiting for audio merge before marking job #{job_id} complete"
+            )
+        end
+      else
+        Coordinator.complete_job(job_id, result_blob)
+      end
+
       {:ok, result_blob}
     else
       {:error, reason} = error ->
@@ -107,7 +121,7 @@ defmodule Backend.Workflow.StitchWorker do
          {:ok, concat_file} <- create_concat_file(temp_dir, video_files),
          {:ok, output_file} <- stitch_videos(concat_file, temp_dir),
          {:ok, result_blob} <- read_result(output_file),
-         {:ok, _job} <-
+         {:ok, job} <-
            save_partial_result(job, result_blob, length(valid_sub_jobs), length(sub_jobs)),
          :ok <- cleanup(temp_dir) do
       Logger.info(
@@ -136,7 +150,7 @@ defmodule Backend.Workflow.StitchWorker do
         {:error, :job_not_found}
 
       job ->
-        {:ok, job}
+      {:ok, job}
     end
   end
 
@@ -325,8 +339,7 @@ defmodule Backend.Workflow.StitchWorker do
     changeset =
       Job.changeset(job, %{
         result: result_blob,
-        status: :completed,
-        progress: %{percentage: 100, stage: "completed"}
+        progress: %{percentage: 90, stage: "stitching_complete"}
       })
 
     case Repo.update(changeset) do
