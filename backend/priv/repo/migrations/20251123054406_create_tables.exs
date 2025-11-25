@@ -6,7 +6,7 @@ defmodule Backend.Repo.Migrations.CreateTables do
     execute("PRAGMA journal_mode=WAL;")
 
     # Create users table with integer id
-    create table(:users) do
+    create_if_not_exists table(:users) do
       add :username, :string, null: false
       add :email, :string, null: false
       add :password_hash, :string
@@ -15,11 +15,11 @@ defmodule Backend.Repo.Migrations.CreateTables do
       timestamps()
     end
 
-    create unique_index(:users, [:email])
-    create unique_index(:users, [:username])
+    create_if_not_exists unique_index(:users, [:email])
+    create_if_not_exists unique_index(:users, [:username])
 
     # Create clients table with UUID id
-    create table(:clients, primary_key: false) do
+    create_if_not_exists table(:clients, primary_key: false) do
       add :id, :binary_id, primary_key: true
       add :name, :string, null: false
       add :brand_guidelines, :string
@@ -28,7 +28,7 @@ defmodule Backend.Repo.Migrations.CreateTables do
     end
 
     # Create campaigns table with UUID id
-    create table(:campaigns, primary_key: false) do
+    create_if_not_exists table(:campaigns, primary_key: false) do
       add :id, :binary_id, primary_key: true
       add :name, :string, null: false
       add :brief, :string, null: false
@@ -37,10 +37,10 @@ defmodule Backend.Repo.Migrations.CreateTables do
       timestamps()
     end
 
-    create index(:campaigns, [:client_id])
+    create_if_not_exists index(:campaigns, [:client_id])
 
     # Create assets table with UUID id
-    create table(:assets, primary_key: false) do
+    create_if_not_exists table(:assets, primary_key: false) do
       add :id, :binary_id, primary_key: true
       add :type, :string, null: false
       add :blob_data, :binary
@@ -53,11 +53,11 @@ defmodule Backend.Repo.Migrations.CreateTables do
       timestamps()
     end
 
-    create index(:assets, [:campaign_id])
-    create index(:assets, [:type])
+    create_if_not_exists index(:assets, [:campaign_id])
+    create_if_not_exists index(:assets, [:type])
 
     # Create jobs table with integer id
-    create table(:jobs) do
+    create_if_not_exists table(:jobs) do
       add :type, :string, null: false
       add :status, :string, null: false, default: "pending"
       add :parameters, :map
@@ -69,11 +69,11 @@ defmodule Backend.Repo.Migrations.CreateTables do
       timestamps()
     end
 
-    create index(:jobs, [:status])
-    create index(:jobs, [:type])
+    create_if_not_exists index(:jobs, [:status])
+    create_if_not_exists index(:jobs, [:type])
 
     # Create sub_jobs table with UUID id
-    create table(:sub_jobs, primary_key: false) do
+    create_if_not_exists table(:sub_jobs, primary_key: false) do
       add :id, :binary_id, primary_key: true
       add :provider_id, :string
       add :status, :string, null: false, default: "pending"
@@ -83,13 +83,13 @@ defmodule Backend.Repo.Migrations.CreateTables do
       timestamps()
     end
 
-    create index(:sub_jobs, [:job_id])
-    create index(:sub_jobs, [:status])
-    create index(:sub_jobs, [:provider_id])
+    create_if_not_exists index(:sub_jobs, [:job_id])
+    create_if_not_exists index(:sub_jobs, [:status])
+    create_if_not_exists index(:sub_jobs, [:provider_id])
 
-    # Add check constraints for enum types using raw SQL
+    # Add check constraints for enum types using raw SQL (IF NOT EXISTS)
     execute("""
-    CREATE TRIGGER validate_asset_type_insert
+    CREATE TRIGGER IF NOT EXISTS validate_asset_type_insert
     BEFORE INSERT ON assets
     FOR EACH ROW
     WHEN NEW.type NOT IN ('image', 'video', 'audio')
@@ -99,7 +99,7 @@ defmodule Backend.Repo.Migrations.CreateTables do
     """)
 
     execute("""
-    CREATE TRIGGER validate_asset_type_update
+    CREATE TRIGGER IF NOT EXISTS validate_asset_type_update
     BEFORE UPDATE ON assets
     FOR EACH ROW
     WHEN NEW.type NOT IN ('image', 'video', 'audio')
@@ -109,7 +109,7 @@ defmodule Backend.Repo.Migrations.CreateTables do
     """)
 
     execute("""
-    CREATE TRIGGER validate_job_type_insert
+    CREATE TRIGGER IF NOT EXISTS validate_job_type_insert
     BEFORE INSERT ON jobs
     FOR EACH ROW
     WHEN NEW.type NOT IN ('image_pairs', 'property_photos')
@@ -119,7 +119,7 @@ defmodule Backend.Repo.Migrations.CreateTables do
     """)
 
     execute("""
-    CREATE TRIGGER validate_job_type_update
+    CREATE TRIGGER IF NOT EXISTS validate_job_type_update
     BEFORE UPDATE ON jobs
     FOR EACH ROW
     WHEN NEW.type NOT IN ('image_pairs', 'property_photos')
@@ -129,7 +129,7 @@ defmodule Backend.Repo.Migrations.CreateTables do
     """)
 
     execute("""
-    CREATE TRIGGER validate_job_status_insert
+    CREATE TRIGGER IF NOT EXISTS validate_job_status_insert
     BEFORE INSERT ON jobs
     FOR EACH ROW
     WHEN NEW.status NOT IN ('pending', 'approved', 'processing', 'completed', 'failed')
@@ -139,7 +139,7 @@ defmodule Backend.Repo.Migrations.CreateTables do
     """)
 
     execute("""
-    CREATE TRIGGER validate_job_status_update
+    CREATE TRIGGER IF NOT EXISTS validate_job_status_update
     BEFORE UPDATE ON jobs
     FOR EACH ROW
     WHEN NEW.status NOT IN ('pending', 'approved', 'processing', 'completed', 'failed')
@@ -149,7 +149,7 @@ defmodule Backend.Repo.Migrations.CreateTables do
     """)
 
     execute("""
-    CREATE TRIGGER validate_sub_job_status_insert
+    CREATE TRIGGER IF NOT EXISTS validate_sub_job_status_insert
     BEFORE INSERT ON sub_jobs
     FOR EACH ROW
     WHEN NEW.status NOT IN ('pending', 'processing', 'completed', 'failed')
@@ -159,7 +159,7 @@ defmodule Backend.Repo.Migrations.CreateTables do
     """)
 
     execute("""
-    CREATE TRIGGER validate_sub_job_status_update
+    CREATE TRIGGER IF NOT EXISTS validate_sub_job_status_update
     BEFORE UPDATE ON sub_jobs
     FOR EACH ROW
     WHEN NEW.status NOT IN ('pending', 'processing', 'completed', 'failed')
