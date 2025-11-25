@@ -17,6 +17,8 @@ defmodule Backend.Workflow.RenderWorker do
 
   @default_max_concurrency 4
   @default_start_delay_ms 1_000
+  @max_render_retries 3
+  @retry_base_delay_ms 5_000
 
   @doc """
   Processes all sub_jobs for a given job in parallel.
@@ -80,7 +82,11 @@ defmodule Backend.Workflow.RenderWorker do
   """
   def process_sub_job(%SubJob{} = sub_job, options \\ %{}) do
     Logger.info("[RenderWorker] Processing sub_job #{sub_job.id}")
+    max_retries = Map.get(options, :max_retries, @max_render_retries)
+    process_sub_job_with_retry(sub_job, options, 0, max_retries)
+  end
 
+  defp process_sub_job_with_retry(sub_job, options, attempt, max_retries) do
     # Update status to processing
     {:ok, sub_job} = update_sub_job_status(sub_job, :processing)
 
@@ -94,11 +100,36 @@ defmodule Backend.Workflow.RenderWorker do
       {:ok, updated_sub_job}
     else
       {:error, reason} = error ->
-        Logger.error("[RenderWorker] Failed to process sub_job #{sub_job.id}: #{inspect(reason)}")
-
-        update_sub_job_status(sub_job, :failed)
-        error
+        if retryable_error?(reason) and attempt < max_retries do
+          delay = @retry_base_delay_ms * :math.pow(2, attempt) |> round()
+          Logger.warning("[RenderWorker] Retryable error for sub_job #{sub_job.id} (attempt #{attempt + 1}/#{max_retries}): #{inspect(reason)}. Retrying in #{delay}ms...")
+          Process.sleep(delay)
+          # Clear provider_id for fresh prediction
+          clear_provider_id(sub_job)
+          process_sub_job_with_retry(sub_job, options, attempt + 1, max_retries)
+        else
+          Logger.error("[RenderWorker] Failed to process sub_job #{sub_job.id} after #{attempt + 1} attempts: #{inspect(reason)}")
+          update_sub_job_status(sub_job, :failed)
+          error
+        end
     end
+  end
+
+  defp retryable_error?({:prediction_failed, message}) when is_binary(message) do
+    # Retry on internal errors (code 13) and other transient failures
+    String.contains?(message, "Internal error") or
+      String.contains?(message, "code': 13") or
+      String.contains?(message, "try again later") or
+      String.contains?(message, "temporarily unavailable")
+  end
+
+  defp retryable_error?({:polling_failed, inner_reason}), do: retryable_error?(inner_reason)
+  defp retryable_error?(_), do: false
+
+  defp clear_provider_id(sub_job) do
+    SubJob
+    |> where([sj], sj.id == ^sub_job.id)
+    |> Repo.update_all(set: [provider_id: nil])
   end
 
   @doc """
