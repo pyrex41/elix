@@ -278,6 +278,7 @@ defmodule BackendWeb.ApiSchemas do
             id: %Schema{type: :integer},
             type: %Schema{type: :string},
             status: %Schema{type: :string},
+            video_name: %Schema{type: :string},
             campaign_id: %Schema{type: :string, format: :uuid},
             asset_count: %Schema{type: :integer},
             scene_count: %Schema{type: :integer},

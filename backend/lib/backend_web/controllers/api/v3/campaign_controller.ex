@@ -159,6 +159,7 @@ defmodule BackendWeb.Api.V3.CampaignController do
           id: job.id,
           type: job.type,
           status: job.status,
+          video_name: job.video_name,
           campaign_id: campaign_id,
           asset_count: length(assets),
           scene_count: length(scenes),
