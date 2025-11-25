@@ -17,8 +17,6 @@ defmodule Backend.Application do
       {Phoenix.PubSub, name: Backend.PubSub},
       # Pipeline Configuration Agent
       Backend.Pipeline.PipelineConfig,
-      # Short-lived audio cache for continuation URLs
-      Backend.Services.AudioSegmentStore,
       # Workflow Coordinator GenServer
       Backend.Workflow.Coordinator,
       {Task, fn -> generate_openapi_spec() end},

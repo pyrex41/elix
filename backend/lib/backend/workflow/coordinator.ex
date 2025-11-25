@@ -13,7 +13,7 @@ defmodule Backend.Workflow.Coordinator do
   require Logger
   alias Backend.Repo
   alias Backend.Schemas.{Job, SubJob}
-  alias Backend.Services.MusicgenService
+  alias Backend.Services.ElevenlabsMusicService
   alias Backend.Workflow.{AudioWorker, StitchWorker}
   alias Ecto.Changeset
   import Ecto.Query
@@ -915,7 +915,7 @@ defmodule Backend.Workflow.Coordinator do
         Logger.info("[Workflow.Coordinator] Merging stored audio into job #{job.id}")
         sync_mode = audio_sync_mode()
 
-        case MusicgenService.merge_audio_with_video(job.result, job.audio_blob, %{sync_mode: sync_mode}) do
+        case ElevenlabsMusicService.merge_audio_with_video(job.result, job.audio_blob, %{sync_mode: sync_mode}) do
           {:ok, merged_video} ->
             progress_update =
               audio_progress("audio_completed", 100, "completed_and_merged", %{

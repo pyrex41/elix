@@ -132,7 +132,6 @@ defmodule BackendWeb.Router do
     scope "/v3", Api.V3 do
       get "/assets/:id/data", AssetController, :data
       get "/assets/:id/thumbnail", AssetController, :thumbnail
-      get "/audio/segments/:token", AudioSegmentController, :show
     end
 
     post "/webhooks/replicate", Api.V3.WebhookController, :replicate
