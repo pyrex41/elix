@@ -60,25 +60,32 @@ defmodule BackendWeb.Api.V3.JobCreationController do
       )
     else
       {:error, :missing_campaign_id} ->
+        Logger.warning("[JobCreationController] 400 Bad Request: campaign_id is required. Params: #{inspect(Map.drop(params, ["parameters"]))}")
         conn
         |> put_status(:bad_request)
         |> json(%{error: "campaign_id is required"})
 
       {:error, :campaign_not_found} ->
+        Logger.warning("[JobCreationController] 404 Not Found: Campaign #{params["campaign_id"]} not found")
         conn
         |> put_status(:not_found)
-        |> json(%{error: "Campaign not found"})
+        |> json(%{error: "Campaign not found", campaign_id: params["campaign_id"]})
 
       {:error, :no_assets} ->
+        Logger.warning("[JobCreationController] 400 Bad Request: Campaign #{params["campaign_id"]} has no image assets")
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Campaign has no assets"})
+        |> json(%{error: "Campaign has no image assets", campaign_id: params["campaign_id"]})
 
       {:error, {:not_enough_assets, required, actual}} ->
+        Logger.warning("[JobCreationController] 400 Bad Request: Campaign #{params["campaign_id"]} has #{actual} image assets, need #{required}")
         conn
         |> put_status(:bad_request)
         |> json(%{
-          error: "Need at least #{required} image assets to start the pipeline, found #{actual}"
+          error: "Need at least #{required} image assets to start the pipeline, found #{actual}",
+          campaign_id: params["campaign_id"],
+          image_asset_count: actual,
+          required: required
         })
 
       {:error, :scene_generation_failed, reason} ->
@@ -148,36 +155,41 @@ defmodule BackendWeb.Api.V3.JobCreationController do
       )
     else
       {:error, :missing_campaign_id} ->
+        Logger.warning("[JobCreationController] 400 Bad Request: campaign_id is required (property_photos)")
         conn
         |> put_status(:bad_request)
         |> json(%{error: "campaign_id is required"})
 
       {:error, :campaign_not_found} ->
+        Logger.warning("[JobCreationController] 404 Not Found: Campaign #{params["campaign_id"]} not found (property_photos)")
         conn
         |> put_status(:not_found)
-        |> json(%{error: "Campaign not found"})
+        |> json(%{error: "Campaign not found", campaign_id: params["campaign_id"]})
 
       {:error, :no_assets} ->
+        Logger.warning("[JobCreationController] 400 Bad Request: Campaign #{params["campaign_id"]} has no assets (property_photos)")
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Campaign has no assets"})
+        |> json(%{error: "Campaign has no assets", campaign_id: params["campaign_id"]})
 
       {:error, :invalid_scene_types, invalid_types} ->
+        Logger.warning("[JobCreationController] 400 Bad Request: Invalid scene types #{inspect(invalid_types)} for campaign #{params["campaign_id"]}")
         conn
         |> put_status(:bad_request)
         |> json(%{
           error: "Scene types do not match allowed property types",
-          invalid_types: invalid_types
+          invalid_types: invalid_types,
+          campaign_id: params["campaign_id"]
         })
 
       {:error, :scene_generation_failed, reason} ->
-        Logger.error("[JobCreationController] Scene generation failed: #{inspect(reason)}")
-
+        Logger.error("[JobCreationController] Scene generation failed for campaign #{params["campaign_id"]}: #{inspect(reason)}")
         conn
         |> put_status(:internal_server_error)
-        |> json(%{error: "Failed to generate scenes", details: reason})
+        |> json(%{error: "Failed to generate scenes", details: reason, campaign_id: params["campaign_id"]})
 
       {:error, changeset} when is_struct(changeset, Ecto.Changeset) ->
+        Logger.warning("[JobCreationController] 422 Validation failed: #{inspect(format_changeset_errors(changeset))}")
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{
@@ -186,8 +198,7 @@ defmodule BackendWeb.Api.V3.JobCreationController do
         })
 
       {:error, reason} ->
-        Logger.error("[JobCreationController] Job creation failed: #{inspect(reason)}")
-
+        Logger.error("[JobCreationController] Job creation failed for campaign #{params["campaign_id"]}: #{inspect(reason)}")
         conn
         |> put_status(:internal_server_error)
         |> json(%{error: "Failed to create job", details: to_string(reason)})
