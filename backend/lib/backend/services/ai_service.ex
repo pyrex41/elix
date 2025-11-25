@@ -226,18 +226,25 @@ defmodule Backend.Services.AiService do
     You are a creative video production assistant. Your task is to analyze image pairs and a campaign brief,
     then generate detailed scene descriptions for video production. Each scene should include:
     - A descriptive title
-    - Detailed visual description
+    - Detailed visual description with GENTLE, GRADUAL camera movements
     - Duration in seconds
-    - Transition type
+    - Transition type (prefer smooth transitions like fade or dissolve)
     - Any text overlays or captions
+
+    CAMERA MOVEMENT GUIDELINES:
+    - All pans must be SLOW and GENTLE (e.g., "slow pan", "gentle pan", "gradual pan")
+    - All zooms must be SUBTLE and GRADUAL (e.g., "subtle zoom", "gentle zoom", "slow push in")
+    - Avoid rapid, jarring, or dramatic camera movements
+    - Prefer smooth, elegant motions that feel cinematic and professional
+    - Use descriptors like: gentle, slow, gradual, subtle, smooth, elegant, soft
 
     Return your response as a JSON array of scenes with the following structure:
     [
       {
         "title": "Scene title",
-        "description": "Detailed visual description",
+        "description": "Detailed visual description with gentle camera movement",
         "duration": 5,
-        "transition": "fade|cut|dissolve",
+        "transition": "fade|dissolve|cut",
         "text_overlay": "Optional text to display"
       }
     ]
@@ -249,19 +256,26 @@ defmodule Backend.Services.AiService do
     You are a real estate video production assistant. Your task is to analyze property photos and a campaign brief,
     then generate detailed scene descriptions for property showcase videos. Each scene should include:
     - A descriptive title
-    - Detailed visual description
+    - Detailed visual description with GENTLE, GRADUAL camera movements
     - Duration in seconds
-    - Transition type
+    - Transition type (prefer smooth transitions like fade or dissolve)
     - Property feature highlights
     - Scene type (must match allowed property types)
+
+    CAMERA MOVEMENT GUIDELINES:
+    - All pans must be SLOW and GENTLE (e.g., "slow pan", "gentle pan", "gradual pan")
+    - All zooms must be SUBTLE and GRADUAL (e.g., "subtle zoom", "gentle zoom", "slow push in")
+    - Avoid rapid, jarring, or dramatic camera movements
+    - Prefer smooth, elegant motions that feel cinematic and professional
+    - Use descriptors like: gentle, slow, gradual, subtle, smooth, elegant, soft
 
     Return your response as a JSON array of scenes with the following structure:
     [
       {
         "title": "Scene title",
-        "description": "Detailed visual description",
+        "description": "Detailed visual description with gentle camera movement",
         "duration": 5,
-        "transition": "fade|cut|dissolve",
+        "transition": "fade|dissolve|cut",
         "scene_type": "exterior|interior|kitchen|bedroom|bathroom|living_room",
         "highlights": ["feature1", "feature2"]
       }
