@@ -7,6 +7,13 @@ defmodule Backend.Services.ElevenlabsMusicService do
 
   @elevenlabs_api_url "https://api.elevenlabs.io/v1/music/compose"
 
+  # Generation parameters
+  @generation_buffer_seconds 8.0
+  @default_scene_duration 4.0
+  @fade_duration_seconds 2.0
+  @bpm 120
+  @api_receive_timeout_ms 120_000
+
   @doc """
   Generates audio for a single scene.
   Convenience wrapper around generate_music_for_scenes/2.
@@ -39,22 +46,22 @@ defmodule Backend.Services.ElevenlabsMusicService do
     - {:error, reason} on failure
   """
   def generate_music_for_scenes(scenes, options \\ %{}) do
-    default_duration = Map.get(options, :default_duration, 4.0)
+    default_duration = Map.get(options, :default_duration, @default_scene_duration)
 
     # Calculate actual duration needed from scenes
     target_duration = Enum.reduce(scenes, 0.0, fn scene, acc ->
       acc + (scene["duration"] || default_duration)
     end)
 
-    # Generate with 8s buffer for clean trimming
-    generation_duration = target_duration + 8.0
+    # Generate with buffer for clean trimming
+    generation_duration = target_duration + @generation_buffer_seconds
 
     Logger.info("[ElevenlabsMusicService] Generating #{generation_duration}s track for #{length(scenes)} scenes (will trim to #{target_duration}s)")
 
     case generate_full_track(scenes, generation_duration, options) do
       {:ok, audio_blob} ->
-        fade_start = max(0, target_duration - 2.0)
-        trim_and_fade_to_duration(audio_blob, target_duration, fade_start, 2.0)
+        fade_start = max(0, target_duration - @fade_duration_seconds)
+        trim_and_fade_to_duration(audio_blob, target_duration, fade_start, @fade_duration_seconds)
       error -> error
     end
   end
@@ -89,11 +96,17 @@ defmodule Backend.Services.ElevenlabsMusicService do
     case get_api_key() do
       nil ->
         Logger.info("[ElevenlabsMusicService] No ElevenLabs API key configured, using silence")
-        generate_silence(full_scene, generate_options)
+        case generate_silence(full_scene, generate_options) do
+          {:ok, %{audio_blob: audio_blob}} -> {:ok, audio_blob}
+          error -> error
+        end
 
       api_key ->
-        Logger.info("[ElevenlabsMusicService] Generating #{duration}s track with single prompt (#{length(scenes)} scenes, no fade instructions, 120 BPM)")
-        call_elevenlabs_api(full_scene, generate_options, api_key)
+        Logger.info("[ElevenlabsMusicService] Generating #{duration}s track with single prompt (#{length(scenes)} scenes, no fade instructions, #{@bpm} BPM)")
+        case call_elevenlabs_api(full_scene, generate_options, api_key) do
+          {:ok, %{audio_blob: audio_blob}} -> {:ok, audio_blob}
+          error -> error
+        end
     end
   end
 
@@ -113,15 +126,16 @@ defmodule Backend.Services.ElevenlabsMusicService do
 
     base_style = "luxury vacation getaway, cinematic, piano-focused, smooth, medium-high energy"
 
-    # 120 BPM = 2 beats per second = 8 beats per 4 seconds
-    # This creates perfect alignment with 4-second scene changes
+    # BPM calculation for scene alignment
+    beats_per_second = @bpm / 60
+    beats_per_scene = trunc(@default_scene_duration * beats_per_second)
     beat_markers =
       0..trunc(total_duration)
-      |> Enum.filter(fn t -> rem(t, 4) == 0 end)
+      |> Enum.filter(fn t -> rem(t, trunc(@default_scene_duration)) == 0 end)
       |> Enum.map(&"#{&1}s")
       |> Enum.join(", ")
 
-    "#{base_style}. #{trunc(total_duration)}-second instrumental track with clear scene transitions every 4 seconds. #{scene_descriptions}. 120 BPM (2 beats per second, 8 beats per 4-second scene change) with strong beat markers at #{beat_markers}. CRITICAL: Maintain FULL energy and volume throughout the entire track. NO fade in. NO fade out. NO volume reduction. Keep constant, steady energy from start to finish. Smooth, flowing transitions between scenes. Instrumental, piano-focused."
+    "#{base_style}. #{trunc(total_duration)}-second instrumental track with clear scene transitions every #{trunc(@default_scene_duration)} seconds. #{scene_descriptions}. #{@bpm} BPM (#{beats_per_second} beats per second, #{beats_per_scene} beats per #{trunc(@default_scene_duration)}-second scene change) with strong beat markers at #{beat_markers}. CRITICAL: Maintain FULL energy and volume throughout the entire track. NO fade in. NO fade out. NO volume reduction. Keep constant, steady energy from start to finish. Smooth, flowing transitions between scenes. Instrumental, piano-focused."
   end
 
   defp trim_and_fade_to_duration(audio_blob, target_duration, fade_start_sec, fade_duration_sec) do
@@ -230,7 +244,7 @@ defmodule Backend.Services.ElevenlabsMusicService do
     - {:error, reason} on failure
   """
   def generate_silence(scene, options \\ %{}) do
-    duration = Map.get(options, :duration, scene["duration"] || 4.0)
+    duration = Map.get(options, :duration, scene["duration"] || @default_scene_duration)
     temp_output_path = create_temp_file("silence", ".mp3")
 
     try do
@@ -292,7 +306,7 @@ defmodule Backend.Services.ElevenlabsMusicService do
     )
 
     # Add timeout for long requests (music generation can take 60-90 seconds)
-    case Req.post(@elevenlabs_api_url, json: body, headers: headers, decode_body: false, receive_timeout: 120_000) do
+    case Req.post(@elevenlabs_api_url, json: body, headers: headers, decode_body: false, receive_timeout: @api_receive_timeout_ms) do
       {:ok, %{status: 200, body: audio_blob}} when is_binary(audio_blob) ->
         # ElevenLabs returns binary audio directly
         {:ok, %{audio_blob: audio_blob, total_duration: duration}}
@@ -335,7 +349,7 @@ defmodule Backend.Services.ElevenlabsMusicService do
       style = scene["music_style"] || "cinematic, piano-focused, smooth"
       energy = scene["music_energy"] || "medium-high"
 
-      "#{music_desc}. Style: #{style}. Energy: #{energy}. Instrumental, 120 BPM"
+      "#{music_desc}. Style: #{style}. Energy: #{energy}. Instrumental, #{@bpm} BPM"
     end
   end
 
