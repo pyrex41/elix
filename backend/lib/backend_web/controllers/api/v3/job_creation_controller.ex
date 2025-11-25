@@ -38,7 +38,7 @@ defmodule BackendWeb.Api.V3.JobCreationController do
 
     with {:ok, campaign_id} <- validate_campaign_id(params),
          {:ok, campaign} <- fetch_campaign(campaign_id),
-         {:ok, assets} <- fetch_campaign_assets(campaign_id, type: :image),
+         {:ok, assets} <- fetch_campaign_assets(campaign, type: :image),
          :ok <- validate_assets_exist(assets),
          :ok <- ensure_min_assets(assets, 2),
          {:ok, scenes} <- generate_scenes(assets, campaign, :image_pairs, %{}),
@@ -136,7 +136,7 @@ defmodule BackendWeb.Api.V3.JobCreationController do
     with {:ok, campaign_id} <- validate_campaign_id(params),
          {:ok, property_types} <- parse_property_types(params),
          {:ok, campaign} <- fetch_campaign(campaign_id),
-         {:ok, assets} <- fetch_campaign_assets(campaign_id),
+         {:ok, assets} <- fetch_campaign_assets(campaign),
          :ok <- validate_assets_exist(assets),
          {:ok, scenes} <-
            generate_scenes(assets, campaign, :property_photos, %{property_types: property_types}),
@@ -269,17 +269,27 @@ defmodule BackendWeb.Api.V3.JobCreationController do
     end
   end
 
-  defp fetch_campaign_assets(campaign_id, opts \\ []) do
+  defp fetch_campaign_assets(campaign, opts \\ []) do
     type_filter = Keyword.get(opts, :type)
+    campaign_id = campaign.id
+    client_id = campaign.client_id
 
+    # Fetch assets from both campaign and client (if client_id exists)
     assets =
       Asset
       |> where([a], a.campaign_id == ^campaign_id)
+      |> or_where_client_id(client_id)
       |> maybe_filter_asset_type(type_filter)
       |> order_by([a], asc: a.inserted_at)
       |> Repo.all()
 
     {:ok, assets}
+  end
+
+  defp or_where_client_id(query, nil), do: query
+
+  defp or_where_client_id(query, client_id) do
+    or_where(query, [a], a.client_id == ^client_id)
   end
 
   defp maybe_filter_asset_type(query, nil), do: query
