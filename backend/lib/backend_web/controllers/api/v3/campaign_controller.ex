@@ -160,6 +160,9 @@ defmodule BackendWeb.Api.V3.CampaignController do
           type: job.type,
           status: job.status,
           video_name: job.video_name,
+          duration:
+            get_in(job.storyboard || %{}, ["total_duration"]) ||
+              get_in(job.storyboard || %{}, [:total_duration]),
           campaign_id: campaign_id,
           asset_count: length(assets),
           scene_count: length(scenes),

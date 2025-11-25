@@ -751,7 +751,16 @@ defmodule BackendWeb.Api.V3.AssetController do
         File.read(thumbnail_path)
 
       asset.type in [:image, "image"] and is_binary(asset.blob_data) ->
-        {:ok, asset.blob_data}
+        case generate_image_thumbnail(asset.blob_data) do
+          {:ok, path} ->
+            _ = maybe_persist_thumbnail_path(asset, path)
+            File.read(path)
+
+          error ->
+            # Fallback to original blob if thumbnail generation fails
+            Logger.warning("Image thumbnail generation failed, returning original: #{inspect(error)}")
+            {:ok, asset.blob_data}
+        end
 
       asset.type in [:video, "video"] and is_binary(asset.blob_data) ->
         case generate_video_thumbnail(asset.blob_data) do
@@ -970,6 +979,48 @@ defmodule BackendWeb.Api.V3.AssetController do
     after
       # Clean up temporary video file
       File.rm(temp_video_path)
+    end
+  end
+
+  defp generate_image_thumbnail(blob_data) do
+    # Create temporary files for image processing
+    temp_image_path =
+      Path.join(System.tmp_dir!(), "image_#{:erlang.unique_integer([:positive])}.png")
+
+    temp_thumb_path =
+      Path.join(System.tmp_dir!(), "thumb_#{:erlang.unique_integer([:positive])}.jpg")
+
+    try do
+      # Write blob to temp file
+      File.write!(temp_image_path, blob_data)
+
+      # Generate thumbnail using FFmpeg
+      # Scale to 320px width, maintain aspect ratio, output as JPEG
+      args = [
+        "-i",
+        temp_image_path,
+        "-vf",
+        "scale=320:-1",
+        "-q:v",
+        "2",
+        temp_thumb_path
+      ]
+
+      case System.cmd("ffmpeg", args, stderr_to_stdout: true) do
+        {_output, 0} ->
+          {:ok, temp_thumb_path}
+
+        {output, exit_code} ->
+          Logger.error("FFmpeg image thumbnail failed with exit code #{exit_code}: #{output}")
+          {:error, "FFmpeg failed with exit code #{exit_code}"}
+      end
+    rescue
+      e ->
+        Logger.error("Exception during image thumbnail generation: #{inspect(e)}")
+        {:error, Exception.message(e)}
+    after
+      # Clean up temporary input file
+      File.rm(temp_image_path)
     end
   end
 

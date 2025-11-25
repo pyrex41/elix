@@ -66,6 +66,11 @@ defmodule Backend.Workflow.AudioWorker do
 
     default_duration = Map.get(audio_params, :default_duration, 4.0)
 
+    # Log scene durations for debugging
+    scene_durations = Enum.map(scenes, fn scene -> scene["duration"] || default_duration end)
+    calculated_total = Enum.sum(scene_durations)
+    Logger.info("[AudioWorker] Scene durations: #{inspect(scene_durations)}, calculated total: #{calculated_total}s")
+
     options = %{
       default_duration: default_duration,
       base_style: "luxury real estate showcase"

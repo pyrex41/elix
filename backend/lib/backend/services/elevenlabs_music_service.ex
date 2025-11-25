@@ -49,13 +49,13 @@ defmodule Backend.Services.ElevenlabsMusicService do
     default_duration = Map.get(options, :default_duration, @default_scene_duration)
 
     # Calculate actual duration needed from scenes
-    target_duration = Enum.reduce(scenes, 0.0, fn scene, acc ->
-      acc + (scene["duration"] || default_duration)
-    end)
+    scene_durations = Enum.map(scenes, fn scene -> scene["duration"] || default_duration end)
+    target_duration = Enum.sum(scene_durations)
 
     # Generate with buffer for clean trimming
     generation_duration = target_duration + @generation_buffer_seconds
 
+    Logger.info("[ElevenlabsMusicService] Target: #{target_duration}s, scenes: #{length(scenes)}, durations: #{inspect(scene_durations)}")
     Logger.info("[ElevenlabsMusicService] Generating #{generation_duration}s track for #{length(scenes)} scenes (will trim to #{target_duration}s)")
 
     case generate_full_track(scenes, generation_duration, options) do
@@ -112,30 +112,42 @@ defmodule Backend.Services.ElevenlabsMusicService do
 
   defp build_prompt_with_timestamps(scenes, total_duration) do
     # Build a prompt with all scenes and explicit timestamps for scene changes
-    scene_descriptions =
+    # Use actual scene durations instead of hardcoded 4-second intervals
+    {scene_descriptions, _scene_boundaries} =
       scenes
-      |> Enum.with_index()
-      |> Enum.map(fn {scene, index} ->
-        start_time = index * 4
-        end_time = (index + 1) * 4
+      |> Enum.reduce({[], 0.0}, fn scene, {descs, time_acc} ->
+        scene_dur = scene["duration"] || @default_scene_duration
+        start_time = time_acc
+        end_time = time_acc + scene_dur
+
         scene_desc = scene["music_description"] || scene["description"] || ""
-        scene_title = scene["title"] || "Scene #{index + 1}"
-        "#{start_time}-#{end_time}s: #{scene_title} - #{scene_desc}"
+        scene_title = scene["title"] || "Scene"
+        desc = "#{trunc(start_time)}-#{trunc(end_time)}s: #{scene_title} - #{scene_desc}"
+
+        {descs ++ [desc], end_time}
       end)
-      |> Enum.join(". ")
+
+    scene_descriptions_text = Enum.join(scene_descriptions, ". ")
 
     base_style = "luxury vacation getaway, cinematic, piano-focused, smooth, medium-high energy"
 
     # BPM calculation for scene alignment
     beats_per_second = @bpm / 60
-    beats_per_scene = trunc(@default_scene_duration * beats_per_second)
-    beat_markers =
-      0..trunc(total_duration)
-      |> Enum.filter(fn t -> rem(t, trunc(@default_scene_duration)) == 0 end)
-      |> Enum.map(&"#{&1}s")
-      |> Enum.join(", ")
+    avg_scene_duration = if length(scenes) > 0, do: total_duration / length(scenes), else: @default_scene_duration
+    beats_per_scene = trunc(avg_scene_duration * beats_per_second)
 
-    "#{base_style}. #{trunc(total_duration)}-second instrumental track with clear scene transitions every #{trunc(@default_scene_duration)} seconds. #{scene_descriptions}. #{@bpm} BPM (#{beats_per_second} beats per second, #{beats_per_scene} beats per #{trunc(@default_scene_duration)}-second scene change) with strong beat markers at #{beat_markers}. CRITICAL: Maintain FULL energy and volume throughout the entire track. NO fade in. NO fade out. NO volume reduction. Keep constant, steady energy from start to finish. Smooth, flowing transitions between scenes. Instrumental, piano-focused."
+    # Calculate beat markers at actual scene boundaries
+    {_, beat_markers_list} =
+      scenes
+      |> Enum.reduce({0.0, [0]}, fn scene, {time_acc, markers} ->
+        scene_dur = scene["duration"] || @default_scene_duration
+        new_time = time_acc + scene_dur
+        {new_time, markers ++ [trunc(new_time)]}
+      end)
+
+    beat_markers = beat_markers_list |> Enum.uniq() |> Enum.map(&"#{&1}s") |> Enum.join(", ")
+
+    "#{base_style}. #{trunc(total_duration)}-second instrumental track with scene transitions at #{beat_markers}. #{scene_descriptions_text}. #{@bpm} BPM (#{beats_per_second} beats per second, ~#{beats_per_scene} beats per scene change) with strong beat markers at scene transitions. CRITICAL: Maintain FULL energy and volume throughout the entire track. NO fade in. NO fade out. NO volume reduction. Keep constant, steady energy from start to finish. Smooth, flowing transitions between scenes. Instrumental, piano-focused."
   end
 
   defp trim_and_fade_to_duration(audio_blob, target_duration, fade_start_sec, fade_duration_sec) do

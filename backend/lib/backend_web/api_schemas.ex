@@ -21,6 +21,7 @@ defmodule BackendWeb.ApiSchemas do
           enum: ["pending", "approved", "processing", "completed", "failed"]
         },
         video_name: %Schema{type: :string},
+        duration: %Schema{type: :number, format: :float, nullable: true, description: "Total video duration in seconds"},
         estimated_cost: %Schema{type: :number, format: :float, nullable: true},
         costs: %Schema{
           type: :object,
@@ -547,6 +548,7 @@ defmodule BackendWeb.ApiSchemas do
         type: %Schema{type: :string},
         status: %Schema{type: :string},
         video_name: %Schema{type: :string},
+        duration: %Schema{type: :number, format: :float, nullable: true, description: "Total video duration in seconds"},
         estimated_cost: %Schema{type: :number, format: :float, nullable: true},
         costs: %Schema{
           type: :object,
