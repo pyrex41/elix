@@ -560,14 +560,15 @@ defmodule Backend.Services.AiService do
     Prioritize variety and visual impact.
 
     Return ONLY a JSON array of the selected group names, nothing else.
-    Example: ["Showcase", "Exterior 1", "Living Room 1", "Kitchen 1"]
+    Example: ["Exterior 1", "Living Room 1", "Kitchen 1", "Bedroom 1"]
     """
   end
 
   defp build_group_selection_prompt(grouped_assets, campaign_brief, num_pairs) do
-    # Build list of available groups with counts
+    # Build list of available groups with counts, excluding "Showcase" sections
     groups_summary =
       grouped_assets
+      |> Enum.reject(fn {group_name, _assets} -> group_name == "Showcase" end)
       |> Enum.map(fn {group_name, assets} ->
         "- #{group_name} (#{length(assets)} photos)"
       end)
@@ -725,8 +726,10 @@ defmodule Backend.Services.AiService do
          options,
          api_key
        ) do
+    # Exclude "Showcase" sections from available groups
     limited_groups =
       grouped_assets
+      |> Enum.reject(fn {group_name, _assets} -> group_name == "Showcase" end)
       |> Enum.sort_by(fn {name, _} -> name end)
       |> Enum.take(@group_assignment_limit)
 
@@ -819,8 +822,10 @@ defmodule Backend.Services.AiService do
       |> Enum.map(&format_scene_requirement/1)
       |> Enum.join("\n\n")
 
+    # Exclude "Showcase" sections from the available groups
     groups =
       grouped_assets
+      |> Enum.reject(fn {group_name, _assets} -> group_name == "Showcase" end)
       |> Enum.map(&format_group_summary/1)
       |> Enum.join("\n\n")
 
