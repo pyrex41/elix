@@ -123,6 +123,15 @@ defmodule Backend.Services.AiService do
 
   defp call_xai_api(assets, campaign_brief, job_type, options, api_key, attempt) do
     prompt = build_prompt(assets, campaign_brief, job_type, options)
+    system_prompt = get_system_prompt(job_type)
+
+    # Log the meta-prompt that generates clip prompts
+    Logger.info("[AiService] ========== META-PROMPT FOR SCENE GENERATION ==========")
+    Logger.info("[AiService] Job type: #{job_type}")
+    Logger.info("[AiService] Options: #{inspect(options)}")
+    Logger.info("[AiService] System prompt:\n#{system_prompt}")
+    Logger.info("[AiService] User prompt:\n#{prompt}")
+    Logger.info("[AiService] ========== END META-PROMPT ==========")
 
     # xAI/Grok API endpoint
     url = "https://api.x.ai/v1/chat/completions"
@@ -136,7 +145,7 @@ defmodule Backend.Services.AiService do
       "messages" => [
         %{
           "role" => "system",
-          "content" => get_system_prompt(job_type)
+          "content" => system_prompt
         },
         %{
           "role" => "user",
@@ -512,6 +521,26 @@ defmodule Backend.Services.AiService do
       Logger.warning(
         "[AiService] Parsed AI response but found no scenes. Content preview: #{preview}"
       )
+    else
+      # Log each generated scene with its prompt for debugging
+      Logger.info("[AiService] ========== GENERATED SCENES (#{length(scenes)}) ==========")
+
+      scenes
+      |> Enum.with_index(1)
+      |> Enum.each(fn {scene, index} ->
+        title = Map.get(scene, "title", "Untitled")
+        description = Map.get(scene, "description", "No description")
+        duration = Map.get(scene, "duration", "?")
+        scene_type = Map.get(scene, "scene_type", "unknown")
+
+        Logger.info(
+          "[AiService] Scene #{index}: [#{scene_type}] \"#{title}\" (#{duration}s)\n  Prompt: #{description}"
+        )
+      end)
+
+      total_duration = Enum.reduce(scenes, 0, fn s, acc -> acc + (Map.get(s, "duration") || 0) end)
+      Logger.info("[AiService] Total duration: #{total_duration}s")
+      Logger.info("[AiService] ========== END GENERATED SCENES ==========")
     end
   end
 

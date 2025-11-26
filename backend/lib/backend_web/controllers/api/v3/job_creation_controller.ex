@@ -41,7 +41,8 @@ defmodule BackendWeb.Api.V3.JobCreationController do
          {:ok, assets} <- fetch_campaign_assets(campaign_id, type: :image),
          :ok <- validate_assets_exist(assets),
          :ok <- ensure_min_assets(assets, 2),
-         {:ok, scenes} <- generate_scenes(assets, campaign, :image_pairs, %{}),
+         scene_options <- build_scene_options(params),
+         {:ok, scenes} <- generate_scenes(assets, campaign, :image_pairs, scene_options),
          {:ok, job} <- create_job(:image_pairs, scenes, params, campaign),
          {:ok, _sub_jobs} <- create_sub_jobs(job, scenes),
          :ok <- broadcast_job_created(job.id) do
@@ -138,8 +139,9 @@ defmodule BackendWeb.Api.V3.JobCreationController do
          {:ok, campaign} <- fetch_campaign(campaign_id),
          {:ok, assets} <- fetch_campaign_assets(campaign_id),
          :ok <- validate_assets_exist(assets),
+         scene_options <- build_scene_options(params) |> Map.put(:property_types, property_types),
          {:ok, scenes} <-
-           generate_scenes(assets, campaign, :property_photos, %{property_types: property_types}),
+           generate_scenes(assets, campaign, :property_photos, scene_options),
          :ok <- validate_scene_types(scenes, property_types),
          {:ok, job} <- create_job(:property_photos, scenes, params, campaign, property_types),
          {:ok, _sub_jobs} <- create_sub_jobs(job, scenes),
@@ -573,6 +575,21 @@ defmodule BackendWeb.Api.V3.JobCreationController do
   end
 
   defp normalize_job_params(params), do: params
+
+  # Build options map for scene generation from request params
+  defp build_scene_options(params) do
+    clip_duration = params["clip_duration"] || 5.0
+    num_pairs = params["num_pairs"] || 10
+
+    Logger.info(
+      "[JobCreationController] Building scene options: clip_duration=#{clip_duration}, num_pairs=#{num_pairs}"
+    )
+
+    %{
+      clip_duration: clip_duration,
+      num_scenes: num_pairs
+    }
+  end
 
   defp normalize_key(key) when is_atom(key), do: Atom.to_string(key)
   defp normalize_key(key), do: key
