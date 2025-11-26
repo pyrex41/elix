@@ -237,8 +237,18 @@ defmodule BackendWeb.Api.V3.JobController do
                   type: :object,
                   properties: %{
                     job_id: %OpenApiSpex.Schema{type: :integer},
+                    video_name: %OpenApiSpex.Schema{type: :string, nullable: true},
                     status: %OpenApiSpex.Schema{type: :string},
                     type: %OpenApiSpex.Schema{type: :string},
+                    estimated_cost: %OpenApiSpex.Schema{type: :number, format: :float, nullable: true},
+                    costs: %OpenApiSpex.Schema{
+                      type: :object,
+                      nullable: true,
+                      properties: %{
+                        estimated: %OpenApiSpex.Schema{type: :number, format: :float},
+                        currency: %OpenApiSpex.Schema{type: :string}
+                      }
+                    },
                     campaign_id: %OpenApiSpex.Schema{type: :string, nullable: true},
                     client_id: %OpenApiSpex.Schema{type: :string, nullable: true},
                     inserted_at: %OpenApiSpex.Schema{type: :string, format: :"date-time"},
@@ -246,8 +256,29 @@ defmodule BackendWeb.Api.V3.JobController do
                     storyboard: %OpenApiSpex.Schema{
                       type: :object,
                       nullable: true,
-                      additionalProperties: true,
-                      description: "Storyboard scenes and metadata for thumbnail selection"
+                      description: "Storyboard with scenes (each containing asset_ids, duration, etc.) and total_duration",
+                      properties: %{
+                        scenes: %OpenApiSpex.Schema{
+                          type: :array,
+                          items: %OpenApiSpex.Schema{
+                            type: :object,
+                            properties: %{
+                              title: %OpenApiSpex.Schema{type: :string},
+                              description: %OpenApiSpex.Schema{type: :string},
+                              duration: %OpenApiSpex.Schema{type: :number},
+                              scene_type: %OpenApiSpex.Schema{type: :string},
+                              asset_ids: %OpenApiSpex.Schema{
+                                type: :array,
+                                items: %OpenApiSpex.Schema{type: :string, format: :uuid},
+                                description: "Asset UUIDs for this scene's images"
+                              },
+                              highlights: %OpenApiSpex.Schema{type: :array, items: %OpenApiSpex.Schema{type: :string}},
+                              transition: %OpenApiSpex.Schema{type: :string}
+                            }
+                          }
+                        },
+                        total_duration: %OpenApiSpex.Schema{type: :number}
+                      }
                     },
                     video_url: %OpenApiSpex.Schema{type: :string},
                     total_duration: %OpenApiSpex.Schema{type: :number, nullable: true}

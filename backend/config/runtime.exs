@@ -27,7 +27,8 @@ if config_env() == :prod do
   # API Keys configuration
   config :backend,
     replicate_api_key: System.get_env("REPLICATE_API_KEY"),
-    xai_api_key: System.get_env("XAI_API_KEY")
+    xai_api_key: System.get_env("XAI_API_KEY"),
+    elevenlabs_api_key: System.get_env("ELEVENLABS_API_KEY")
 
   audio_sync_mode =
     case String.downcase(System.get_env("AUDIO_SYNC_MODE") || "trim") do

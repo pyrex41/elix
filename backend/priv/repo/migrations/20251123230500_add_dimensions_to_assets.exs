@@ -16,9 +16,14 @@ defmodule Backend.Repo.Migrations.AddDimensionsToAssets do
   end
 
   def up do
-    alter table(:assets) do
-      add :width, :integer
-      add :height, :integer
+    columns = get_column_names("assets")
+
+    unless "width" in columns do
+      execute("ALTER TABLE assets ADD COLUMN width INTEGER;")
+    end
+
+    unless "height" in columns do
+      execute("ALTER TABLE assets ADD COLUMN height INTEGER;")
     end
 
     flush()
@@ -26,10 +31,7 @@ defmodule Backend.Repo.Migrations.AddDimensionsToAssets do
   end
 
   def down do
-    alter table(:assets) do
-      remove :width
-      remove :height
-    end
+    :ok
   end
 
   defp populate_dimensions do
@@ -99,4 +101,9 @@ defmodule Backend.Repo.Migrations.AddDimensionsToAssets do
   end
 
   defp parse_dimension(_), do: nil
+
+  defp get_column_names(table) do
+    %{rows: rows} = repo().query!("PRAGMA table_info(#{table});")
+    Enum.map(rows, fn [_cid, name | _rest] -> name end)
+  end
 end

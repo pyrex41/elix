@@ -29,6 +29,7 @@ config :backend,
   video_generation_model: "veo3",
   replicate_webhook_url: nil,
   replicate_max_concurrency: 4,
-  replicate_start_delay_ms: 0
+  replicate_start_delay_ms: 0,
+  elevenlabs_api_key: System.get_env("ELEVENLABS_API_KEY")
 
 config :backend, :workflow_processing_enabled, false

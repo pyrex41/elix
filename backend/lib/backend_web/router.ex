@@ -70,6 +70,9 @@ defmodule BackendWeb.Router do
       post "/jobs/:job_id/scenes/:scene_id/regenerate", SceneController, :regenerate
       delete "/jobs/:job_id/scenes/:scene_id", SceneController, :delete
 
+      # Storyboard scene editing (edit assets/duration before approval)
+      patch "/jobs/:job_id/storyboard/scenes/:scene_index", SceneController, :edit_storyboard_scene
+
       # Video serving endpoints
       get "/videos/:job_id/combined", VideoController, :combined
       get "/videos/:job_id/thumbnail", VideoController, :thumbnail
@@ -132,7 +135,6 @@ defmodule BackendWeb.Router do
     scope "/v3", Api.V3 do
       get "/assets/:id/data", AssetController, :data
       get "/assets/:id/thumbnail", AssetController, :thumbnail
-      get "/audio/segments/:token", AudioSegmentController, :show
     end
 
     post "/webhooks/replicate", Api.V3.WebhookController, :replicate

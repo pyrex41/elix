@@ -60,25 +60,32 @@ defmodule BackendWeb.Api.V3.JobCreationController do
       )
     else
       {:error, :missing_campaign_id} ->
+        Logger.warning("[JobCreationController] 400 Bad Request: campaign_id is required. Params: #{inspect(Map.drop(params, ["parameters"]))}")
         conn
         |> put_status(:bad_request)
         |> json(%{error: "campaign_id is required"})
 
       {:error, :campaign_not_found} ->
+        Logger.warning("[JobCreationController] 404 Not Found: Campaign #{params["campaign_id"]} not found")
         conn
         |> put_status(:not_found)
-        |> json(%{error: "Campaign not found"})
+        |> json(%{error: "Campaign not found", campaign_id: params["campaign_id"]})
 
       {:error, :no_assets} ->
+        Logger.warning("[JobCreationController] 400 Bad Request: Campaign #{params["campaign_id"]} has no image assets")
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Campaign has no assets"})
+        |> json(%{error: "Campaign has no image assets", campaign_id: params["campaign_id"]})
 
       {:error, {:not_enough_assets, required, actual}} ->
+        Logger.warning("[JobCreationController] 400 Bad Request: Campaign #{params["campaign_id"]} has #{actual} image assets, need #{required}")
         conn
         |> put_status(:bad_request)
         |> json(%{
-          error: "Need at least #{required} image assets to start the pipeline, found #{actual}"
+          error: "Need at least #{required} image assets to start the pipeline, found #{actual}",
+          campaign_id: params["campaign_id"],
+          image_asset_count: actual,
+          required: required
         })
 
       {:error, :scene_generation_failed, reason} ->
@@ -148,36 +155,41 @@ defmodule BackendWeb.Api.V3.JobCreationController do
       )
     else
       {:error, :missing_campaign_id} ->
+        Logger.warning("[JobCreationController] 400 Bad Request: campaign_id is required (property_photos)")
         conn
         |> put_status(:bad_request)
         |> json(%{error: "campaign_id is required"})
 
       {:error, :campaign_not_found} ->
+        Logger.warning("[JobCreationController] 404 Not Found: Campaign #{params["campaign_id"]} not found (property_photos)")
         conn
         |> put_status(:not_found)
-        |> json(%{error: "Campaign not found"})
+        |> json(%{error: "Campaign not found", campaign_id: params["campaign_id"]})
 
       {:error, :no_assets} ->
+        Logger.warning("[JobCreationController] 400 Bad Request: Campaign #{params["campaign_id"]} has no assets (property_photos)")
         conn
         |> put_status(:bad_request)
-        |> json(%{error: "Campaign has no assets"})
+        |> json(%{error: "Campaign has no assets", campaign_id: params["campaign_id"]})
 
       {:error, :invalid_scene_types, invalid_types} ->
+        Logger.warning("[JobCreationController] 400 Bad Request: Invalid scene types #{inspect(invalid_types)} for campaign #{params["campaign_id"]}")
         conn
         |> put_status(:bad_request)
         |> json(%{
           error: "Scene types do not match allowed property types",
-          invalid_types: invalid_types
+          invalid_types: invalid_types,
+          campaign_id: params["campaign_id"]
         })
 
       {:error, :scene_generation_failed, reason} ->
-        Logger.error("[JobCreationController] Scene generation failed: #{inspect(reason)}")
-
+        Logger.error("[JobCreationController] Scene generation failed for campaign #{params["campaign_id"]}: #{inspect(reason)}")
         conn
         |> put_status(:internal_server_error)
-        |> json(%{error: "Failed to generate scenes", details: reason})
+        |> json(%{error: "Failed to generate scenes", details: reason, campaign_id: params["campaign_id"]})
 
       {:error, changeset} when is_struct(changeset, Ecto.Changeset) ->
+        Logger.warning("[JobCreationController] 422 Validation failed: #{inspect(format_changeset_errors(changeset))}")
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{
@@ -186,8 +198,7 @@ defmodule BackendWeb.Api.V3.JobCreationController do
         })
 
       {:error, reason} ->
-        Logger.error("[JobCreationController] Job creation failed: #{inspect(reason)}")
-
+        Logger.error("[JobCreationController] Job creation failed for campaign #{params["campaign_id"]}: #{inspect(reason)}")
         conn
         |> put_status(:internal_server_error)
         |> json(%{error: "Failed to create job", details: to_string(reason)})
@@ -288,10 +299,120 @@ defmodule BackendWeb.Api.V3.JobCreationController do
   defp generate_scenes(assets, campaign, job_type, options) do
     case AiService.generate_scenes(assets, campaign.brief, job_type, options) do
       {:ok, scenes} ->
-        {:ok, scenes}
+        # Assign asset_ids to scenes if not already present
+        scenes_with_assets = assign_assets_to_scenes(scenes, assets)
+        {:ok, scenes_with_assets}
 
       {:error, reason} ->
         {:error, :scene_generation_failed, reason}
+    end
+  end
+
+  # Assigns assets to scenes based on scene_type matching
+  # This ensures each scene has asset_ids for rendering
+  defp assign_assets_to_scenes(scenes, assets) do
+    grouped_assets = group_assets_for_scenes(assets)
+
+    scenes
+    |> Enum.with_index()
+    |> Enum.map(fn {scene, index} ->
+      # Skip if scene already has asset_ids
+      if has_asset_ids?(scene) do
+        scene
+      else
+        scene_type = scene["scene_type"] || scene[:scene_type] || "general"
+        matching_assets = find_matching_assets(scene_type, grouped_assets, assets, index)
+
+        case matching_assets do
+          [first | rest] ->
+            last = List.last(rest) || first
+            Map.put(scene, "asset_ids", [first.id, last.id])
+
+          [] ->
+            # Fallback: use assets at scene index position
+            fallback_assets = get_fallback_assets(assets, index)
+            Map.put(scene, "asset_ids", Enum.map(fallback_assets, & &1.id))
+        end
+      end
+    end)
+  end
+
+  defp has_asset_ids?(scene) do
+    asset_ids = scene["asset_ids"] || scene[:asset_ids]
+    is_list(asset_ids) and length(asset_ids) > 0
+  end
+
+  # Groups assets by their category/tag for scene matching
+  defp group_assets_for_scenes(assets) do
+    assets
+    |> Enum.group_by(fn asset ->
+      cond do
+        is_list(asset.tags) and asset.tags != [] ->
+          asset.tags |> List.first() |> normalize_asset_category()
+
+        is_binary(asset.name) and asset.name != "" ->
+          normalize_asset_category(asset.name)
+
+        true ->
+          "general"
+      end
+    end)
+  end
+
+  # Normalizes category names for matching
+  defp normalize_asset_category(nil), do: "general"
+
+  defp normalize_asset_category(name) when is_binary(name) do
+    name
+    |> String.downcase()
+    |> String.replace(~r/[_\s]+\d+$/, "")  # Remove trailing numbers
+    |> String.replace(~r/[_\s]+/, "_")
+    |> String.trim()
+  end
+
+  # Finds assets matching the scene type
+  defp find_matching_assets(scene_type, grouped_assets, all_assets, scene_index) do
+    normalized_type = normalize_asset_category(scene_type)
+
+    # Try exact match first
+    exact_match = Map.get(grouped_assets, normalized_type, [])
+
+    if length(exact_match) >= 2 do
+      Enum.take(exact_match, 2)
+    else
+      # Try partial match
+      partial_matches =
+        grouped_assets
+        |> Enum.filter(fn {category, _} ->
+          String.contains?(category, normalized_type) or
+            String.contains?(normalized_type, category)
+        end)
+        |> Enum.flat_map(fn {_, assets} -> assets end)
+
+      if length(partial_matches) >= 2 do
+        Enum.take(partial_matches, 2)
+      else
+        # Fallback to index-based selection
+        get_fallback_assets(all_assets, scene_index)
+      end
+    end
+  end
+
+  # Gets fallback assets based on scene index
+  defp get_fallback_assets(assets, index) do
+    asset_count = length(assets)
+
+    if asset_count == 0 do
+      []
+    else
+      # Use modulo to cycle through assets if we have more scenes than assets
+      first_idx = rem(index * 2, asset_count)
+      second_idx = rem(index * 2 + 1, asset_count)
+
+      first = Enum.at(assets, first_idx)
+      second = Enum.at(assets, second_idx) || first
+
+      [first, second] |> Enum.reject(&is_nil/1)
     end
   end
 
@@ -511,6 +632,9 @@ defmodule BackendWeb.Api.V3.JobCreationController do
       "scene_count" => length(scenes),
       "message" => "Job created successfully",
       "video_name" => job.video_name,
+      "duration" =>
+        get_in(job.storyboard || %{}, ["total_duration"]) ||
+          get_in(job.storyboard || %{}, [:total_duration]),
       "estimated_cost" => job.estimated_cost,
       "costs" => cost_summary,
       "storyboard_ready" => true,

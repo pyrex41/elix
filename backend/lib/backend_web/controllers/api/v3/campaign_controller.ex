@@ -159,6 +159,10 @@ defmodule BackendWeb.Api.V3.CampaignController do
           id: job.id,
           type: job.type,
           status: job.status,
+          video_name: job.video_name,
+          duration:
+            get_in(job.storyboard || %{}, ["total_duration"]) ||
+              get_in(job.storyboard || %{}, [:total_duration]),
           campaign_id: campaign_id,
           asset_count: length(assets),
           scene_count: length(scenes),
@@ -489,10 +493,113 @@ defmodule BackendWeb.Api.V3.CampaignController do
            clip_duration: clip_duration
          }) do
       {:ok, scenes} ->
-        {:ok, scenes}
+        # Assign assets to scenes based on scene_type
+        scenes_with_assets = assign_assets_to_scenes(scenes, assets)
+        {:ok, scenes_with_assets}
 
       {:error, reason} ->
         {:error, :scene_generation_failed, reason}
+    end
+  end
+
+  # Assigns assets to scenes based on scene_type matching
+  defp assign_assets_to_scenes(scenes, assets) do
+    # Group assets by category/tag for matching
+    grouped_assets = group_assets_for_scenes(assets)
+
+    scenes
+    |> Enum.with_index()
+    |> Enum.map(fn {scene, index} ->
+      scene_type = scene["scene_type"] || scene[:scene_type] || "general"
+      matching_assets = find_matching_assets(scene_type, grouped_assets, assets, index)
+
+      case matching_assets do
+        [first | rest] ->
+          last = List.last(rest) || first
+          Map.put(scene, "asset_ids", [first.id, last.id])
+
+        [] ->
+          # Fallback: use assets at scene index position
+          fallback_assets = get_fallback_assets(assets, index)
+          Map.put(scene, "asset_ids", Enum.map(fallback_assets, & &1.id))
+      end
+    end)
+  end
+
+  # Groups assets by their category/tag for scene matching
+  defp group_assets_for_scenes(assets) do
+    assets
+    |> Enum.group_by(fn asset ->
+      cond do
+        is_list(asset.tags) and asset.tags != [] ->
+          asset.tags |> List.first() |> normalize_category()
+
+        is_binary(asset.name) and asset.name != "" ->
+          normalize_category(asset.name)
+
+        true ->
+          "general"
+      end
+    end)
+  end
+
+  # Normalizes category names for matching
+  defp normalize_category(nil), do: "general"
+
+  defp normalize_category(name) when is_binary(name) do
+    name
+    |> String.downcase()
+    |> String.replace(~r/[_\s]+\d+$/, "")  # Remove trailing numbers
+    |> String.replace(~r/[_\s]+/, "_")
+    |> String.trim()
+  end
+
+  # Finds assets matching the scene type
+  defp find_matching_assets(scene_type, grouped_assets, all_assets, scene_index) do
+    normalized_type = normalize_category(scene_type)
+
+    # Try exact match first
+    exact_match = Map.get(grouped_assets, normalized_type, [])
+
+    if length(exact_match) >= 2 do
+      Enum.take(exact_match, 2)
+    else
+      # Try partial match
+      partial_matches =
+        grouped_assets
+        |> Enum.filter(fn {category, _assets} ->
+          String.contains?(category, normalized_type) or
+            String.contains?(normalized_type, category)
+        end)
+        |> Enum.flat_map(fn {_category, assets} -> assets end)
+
+      if length(partial_matches) >= 2 do
+        Enum.take(partial_matches, 2)
+      else
+        # Use assets distributed by scene index
+        get_fallback_assets(all_assets, scene_index)
+      end
+    end
+  end
+
+  # Gets fallback assets distributed across scenes
+  defp get_fallback_assets(assets, scene_index) do
+    asset_count = length(assets)
+
+    if asset_count < 2 do
+      assets
+    else
+      # Distribute assets evenly across scenes
+      chunk_size = max(div(asset_count, 4), 2)
+      start_index = rem(scene_index * chunk_size, asset_count)
+
+      assets
+      |> Enum.slice(start_index, 2)
+      |> case do
+        [] -> Enum.take(assets, 2)
+        [single] -> [single, List.last(assets)]
+        pair -> pair
+      end
     end
   end
 

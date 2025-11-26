@@ -340,6 +340,105 @@ defmodule BackendWeb.Api.V3.SceneController do
     end
   end
 
+  # Storyboard scene editing constants
+  @min_scene_duration 3.0
+  @max_scene_duration 8.0
+
+  @doc """
+  PATCH /api/v3/jobs/:job_id/storyboard/scenes/:scene_index
+
+  Edits a scene in the job's storyboard. Only allowed when job is pending.
+  Preserves existing prompt when changing assets.
+
+  ## Parameters
+    - job_id: The parent job ID
+    - scene_index: Zero-based index of scene in storyboard
+    - asset_ids: New asset IDs (optional)
+    - duration: New duration in seconds (optional, #{@min_scene_duration}-#{@max_scene_duration}s)
+
+  ## Response
+    - 200: Scene edited successfully
+    - 404: Job not found or scene index out of bounds
+    - 409: Job not in pending status
+    - 422: Validation error (duration out of range, asset not found)
+  """
+  def edit_storyboard_scene(conn, %{"job_id" => job_id, "scene_index" => scene_index_str} = params) do
+    Logger.info("[SceneController] Editing storyboard scene #{scene_index_str} for job #{job_id}")
+
+    with {:ok, job} <- get_job(job_id),
+         :ok <- validate_job_pending(job),
+         {:ok, scene_index} <- parse_scene_index(scene_index_str),
+         {:ok, scenes} <- get_storyboard_scenes(job),
+         {:ok, scene} <- get_scene_at_index(scenes, scene_index),
+         {:ok, updated_scene} <- apply_storyboard_scene_edits(scene, params),
+         {:ok, updated_job} <- persist_storyboard_scene_update(job, scenes, scene_index, updated_scene) do
+      conn
+      |> put_status(:ok)
+      |> json(%{
+        message: "Scene updated successfully",
+        scene: format_storyboard_scene(updated_scene, scene_index),
+        scene_index: scene_index,
+        job_id: job.id,
+        total_duration:
+          get_in(updated_job.storyboard || %{}, ["total_duration"]) ||
+            get_in(updated_job.storyboard || %{}, [:total_duration])
+      })
+    else
+      {:error, :job_not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Job not found", job_id: job_id})
+
+      {:error, :job_not_pending} ->
+        conn
+        |> put_status(:conflict)
+        |> json(%{
+          error: "Scene can only be edited while job is pending",
+          job_id: job_id
+        })
+
+      {:error, :invalid_scene_index} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{
+          error: "Invalid scene index",
+          scene_index: scene_index_str
+        })
+
+      {:error, :scene_not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{
+          error: "Scene index out of bounds",
+          scene_index: scene_index_str
+        })
+
+      {:error, :no_storyboard} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{
+          error: "Job has no storyboard",
+          job_id: job_id
+        })
+
+      {:error, :duration_out_of_range} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{
+          error: "Duration must be between #{@min_scene_duration} and #{@max_scene_duration} seconds",
+          min: @min_scene_duration,
+          max: @max_scene_duration
+        })
+
+      {:error, reason} ->
+        Logger.error("[SceneController] Storyboard scene edit failed: #{inspect(reason)}")
+
+        conn
+        |> put_status(:internal_server_error)
+        |> json(%{error: "Failed to update scene"})
+    end
+  end
+
   # Private helper functions
 
   defp get_job(job_id) do
@@ -512,5 +611,116 @@ defmodule BackendWeb.Api.V3.SceneController do
         opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
       end)
     end)
+  end
+
+  # Storyboard scene editing helper functions
+
+  defp validate_job_pending(%Job{status: :pending}), do: :ok
+  defp validate_job_pending(_job), do: {:error, :job_not_pending}
+
+  defp parse_scene_index(index_str) when is_binary(index_str) do
+    case Integer.parse(index_str) do
+      {idx, ""} when idx >= 0 -> {:ok, idx}
+      _ -> {:error, :invalid_scene_index}
+    end
+  end
+
+  defp get_storyboard_scenes(%Job{storyboard: nil}), do: {:error, :no_storyboard}
+
+  defp get_storyboard_scenes(%Job{storyboard: storyboard}) do
+    scenes =
+      cond do
+        is_map(storyboard) && Map.has_key?(storyboard, "scenes") -> storyboard["scenes"]
+        is_map(storyboard) && Map.has_key?(storyboard, :scenes) -> storyboard.scenes
+        true -> nil
+      end
+
+    if is_list(scenes) do
+      {:ok, scenes}
+    else
+      {:error, :no_storyboard}
+    end
+  end
+
+  defp get_scene_at_index(scenes, index) when is_list(scenes) and index >= 0 do
+    case Enum.at(scenes, index) do
+      nil -> {:error, :scene_not_found}
+      scene -> {:ok, scene}
+    end
+  end
+
+  defp apply_storyboard_scene_edits(scene, params) do
+    scene
+    |> maybe_update_asset_ids(params)
+    |> maybe_update_duration(params)
+  end
+
+  defp maybe_update_asset_ids({:error, _} = error, _params), do: error
+
+  defp maybe_update_asset_ids(scene, %{"asset_ids" => asset_ids}) when is_list(asset_ids) do
+    # Preserve prompt - just update asset_ids
+    Map.put(scene, "asset_ids", asset_ids)
+  end
+
+  defp maybe_update_asset_ids(scene, %{"asset_id" => asset_id}) when is_binary(asset_id) do
+    # Single asset_id convenience - convert to list
+    Map.put(scene, "asset_ids", [asset_id])
+  end
+
+  defp maybe_update_asset_ids(scene, _params), do: scene
+
+  defp maybe_update_duration({:error, _} = error, _params), do: error
+
+  defp maybe_update_duration(scene, %{"duration" => duration}) when is_number(duration) do
+    if duration >= @min_scene_duration and duration <= @max_scene_duration do
+      Map.put(scene, "duration", duration * 1.0)
+    else
+      {:error, :duration_out_of_range}
+    end
+  end
+
+  defp maybe_update_duration(scene, _params), do: scene
+
+  defp persist_storyboard_scene_update(job, scenes, index, updated_scene) do
+    updated_scenes = List.replace_at(scenes, index, updated_scene)
+    new_total_duration = calculate_storyboard_total_duration(updated_scenes)
+
+    updated_storyboard =
+      job.storyboard
+      |> Map.put("scenes", updated_scenes)
+      |> Map.put("total_duration", new_total_duration)
+
+    job
+    |> Job.changeset(%{storyboard: updated_storyboard})
+    |> Repo.update()
+  end
+
+  defp calculate_storyboard_total_duration(scenes) do
+    Enum.reduce(scenes, 0.0, fn scene, acc ->
+      duration =
+        case Map.get(scene, "duration") || Map.get(scene, :duration) do
+          value when is_number(value) -> value * 1.0
+          value when is_binary(value) ->
+            case Float.parse(value) do
+              {float_val, _} -> float_val
+              :error -> 0.0
+            end
+          _ -> 0.0
+        end
+
+      acc + duration
+    end)
+  end
+
+  defp format_storyboard_scene(scene, index) do
+    %{
+      index: index,
+      title: scene["title"] || scene[:title],
+      description: scene["description"] || scene[:description],
+      duration: scene["duration"] || scene[:duration],
+      asset_ids: scene["asset_ids"] || scene[:asset_ids],
+      prompt: scene["prompt"] || scene[:prompt],
+      scene_type: scene["scene_type"] || scene[:scene_type]
+    }
   end
 end

@@ -44,6 +44,7 @@ replicate_start_delay_ms =
 config :backend,
   replicate_api_key: System.get_env("REPLICATE_API_KEY"),
   xai_api_key: System.get_env("XAI_API_KEY"),
+  elevenlabs_api_key: System.get_env("ELEVENLABS_API_KEY"),
   public_base_url: public_base_url,
   asset_base_url: public_base_url,
   replicate_webhook_url: replicate_webhook_url,

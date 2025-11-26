@@ -14,7 +14,7 @@ defmodule BackendWeb.Api.V3.TestingController do
   use BackendWeb, :controller
   require Logger
 
-  alias Backend.Services.{AiService, MusicgenService, OverlayService, TtsService}
+  alias Backend.Services.{AiService, ElevenlabsMusicService, OverlayService, TtsService}
   alias Backend.Templates.SceneTemplates
   alias Backend.Pipeline.PipelineConfig
   alias Backend.Schemas.{Campaign, Asset, Job}
@@ -153,7 +153,7 @@ defmodule BackendWeb.Api.V3.TestingController do
       duration: Map.get(scene_params, "duration", 4)
     }
 
-    case MusicgenService.generate_scene_audio(scene_params, options) do
+    case ElevenlabsMusicService.generate_scene_audio(scene_params, options) do
       {:ok, result} ->
         json(conn, %{
           success: true,
@@ -191,7 +191,7 @@ defmodule BackendWeb.Api.V3.TestingController do
       fade_duration: Map.get(params, "fade_duration", 1.5)
     }
 
-    case MusicgenService.generate_music_for_scenes(scenes, options) do
+    case ElevenlabsMusicService.generate_music_for_scenes(scenes, options) do
       {:ok, final_audio_blob} ->
         # Calculate expected vs actual duration
         expected_duration = Enum.sum(Enum.map(scenes, &Map.get(&1, "duration", 4.0)))
@@ -266,7 +266,7 @@ defmodule BackendWeb.Api.V3.TestingController do
       fade_duration: 1.5
     }
 
-    case MusicgenService.generate_music_for_scenes(scenes, options) do
+    case ElevenlabsMusicService.generate_music_for_scenes(scenes, options) do
       {:ok, final_audio_blob} ->
         json(conn, %{
           success: true,
